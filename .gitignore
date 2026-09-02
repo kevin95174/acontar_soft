@@ -9,11 +9,21 @@
     .vscode/
 
     # Carpetas de PDFs (ajusta con el nombre exacto de tus carpetas)
-    labels/
     report_actas/
-    reportess/
-    dist/
+    reportes/
     build/
     exportar/
     photos/
     *.pdf
+
+    # Ignorar dist y todo su contenido interno
+    dist/
+    **/dist/
+
+    # Ignorar cualquier carpeta labels sin importar la profundidad
+    labels/
+    **/labels/
+
+    # Ignorar todos los archivos PDF en cualquier subdirectorio
+    *.pdf
+    **/*.pdf
