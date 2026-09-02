@@ -10,8 +10,6 @@ __pycache__/
 
 # Carpetas ignoradas
 report_actas/
-reportes/
-reportess/
 build/
 exportar/
 photos/
