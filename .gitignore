@@ -12,4 +12,8 @@ __pycache__/
 labels/
 report_actas/
 reportess/
+dist/
+build/
+exportar/
+photos/
 *.pdf
