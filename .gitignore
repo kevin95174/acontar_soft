@@ -1,19 +1,19 @@
-# Entorno virtual
-venv/
+    # Entorno virtual
+    venv/
 
-# Archivos de caché
-__pycache__/
-*.pyc
+    # Archivos de caché
+    __pycache__/
+    *.pyc
 
-# Configuración de VS Code
-.vscode/
+    # Configuración de VS Code
+    .vscode/
 
-# Carpetas de PDFs (ajusta con el nombre exacto de tus carpetas)
-labels/
-report_actas/
-reportess/
-dist/
-build/
-exportar/
-photos/
-*.pdf
+    # Carpetas de PDFs (ajusta con el nombre exacto de tus carpetas)
+    labels/
+    report_actas/
+    reportess/
+    dist/
+    build/
+    exportar/
+    photos/
+    *.pdf
