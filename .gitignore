@@ -1,29 +1,29 @@
-    # Entorno virtual
-    venv/
+# Entorno virtual
+venv/
 
-    # Archivos de caché
-    __pycache__/
-    *.pyc
+# Archivos de caché
+__pycache__/
+*.pyc
 
-    # Configuración de VS Code
-    .vscode/
+# Configuración de VS Code
+.vscode/
 
-    # Carpetas de PDFs (ajusta con el nombre exacto de tus carpetas)
-    report_actas/
-    reportes/
-    build/
-    exportar/
-    photos/
-    *.pdf
+# Carpetas ignoradas
+report_actas/
+reportes/
+reportess/
+build/
+exportar/
+photos/
 
-    # Ignorar dist y todo su contenido interno
-    dist/
-    **/dist/
+# Ignorar dist y todo su contenido interno
+dist/
+**/dist/
 
-    # Ignorar cualquier carpeta labels sin importar la profundidad
-    labels/
-    **/labels/
+# Ignorar cualquier carpeta labels sin importar la profundidad
+labels/
+**/labels/
 
-    # Ignorar todos los archivos PDF en cualquier subdirectorio
-    *.pdf
-    **/*.pdf
+# Ignorar todos los archivos PDF en cualquier subdirectorio
+*.pdf
+**/*.pdf
