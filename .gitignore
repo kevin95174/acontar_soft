@@ -1,0 +1,15 @@
+# Entorno virtual
+venv/
+
+# Archivos de caché
+__pycache__/
+*.pyc
+
+# Configuración de VS Code
+.vscode/
+
+# Carpetas de PDFs (ajusta con el nombre exacto de tus carpetas)
+labels/
+report_actas/
+reportess/
+*.pdf
