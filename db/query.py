@@ -788,8 +788,8 @@ def data_label_nc(Acta):
 
 def data_label_ubi(Acta):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f"""SELECT local||' '|| area||' '|| oficina as ubicacion FROM personal Where Acta = "{Acta}" """
-    # sql_sqlite = f"""SELECT local||' - '|| oficina as ubicacion FROM personal Where Acta = "{Acta}" """
+    # sql_sqlite = f"""SELECT local||' '|| area||' '|| oficina as ubicacion FROM personal Where Acta = "{Acta}" """
+    sql_sqlite = f"""SELECT oficina as ubicacion FROM personal Where Acta = "{Acta}" """
     try:
         cur = conn_sqlite.cursor()
         cur.execute(sql_sqlite)

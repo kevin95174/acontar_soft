@@ -6,8 +6,30 @@ from reportlab.lib.units import cm, mm
 from reportlab.lib.utils import ImageReader
 from reportlab.platypus import Paragraph
 from reportlab.lib.styles import ParagraphStyle
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from db.query import datos_iniciales
 from utils.config_utils import ConfigUtils
+
+# Configuración de fuente Roboto (con respaldo a Helvetica si no existen los archivos TTF)
+FONT_REGULAR = 'Helvetica'
+FONT_BOLD = 'Helvetica-Bold'
+
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_FONTS_DIR = os.path.join(_BASE_DIR, 'fonts')
+_ROBOTO_REG_PATH = os.path.join(_FONTS_DIR, 'Roboto-Regular.ttf')
+_ROBOTO_BOLD_PATH = os.path.join(_FONTS_DIR, 'Roboto-Bold.ttf')
+
+if os.path.exists(_ROBOTO_REG_PATH) and os.path.exists(_ROBOTO_BOLD_PATH):
+    try:
+        if 'Roboto' not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(TTFont('Roboto', _ROBOTO_REG_PATH))
+        if 'Roboto-Bold' not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(TTFont('Roboto-Bold', _ROBOTO_BOLD_PATH))
+        FONT_REGULAR = 'Roboto'
+        FONT_BOLD = 'Roboto-Bold'
+    except Exception:
+        pass
 
 def build_label_sobrante(valor, local, area, oficina, deno):
 
@@ -34,6 +56,7 @@ def build_label_sobrante(valor, local, area, oficina, deno):
 
         s1 = ParagraphStyle(name='Body', 
                         fontSize=5, 
+                        fontName = FONT_REGULAR,
                         alignment=0, 
                         # backColor = '#FFFF00',
                         borderPadding= 1,
@@ -43,7 +66,7 @@ def build_label_sobrante(valor, local, area, oficina, deno):
 
         s2 = ParagraphStyle(name='Body', 
                         fontSize=10,
-                        fontName = 'Helvetica-Bold', 
+                        fontName = FONT_BOLD, 
                         alignment=1, 
                         # backColor = '#FFFF00',
                         # borderWidth = 0.25,
@@ -52,7 +75,7 @@ def build_label_sobrante(valor, local, area, oficina, deno):
 
         s3 = ParagraphStyle(name='Body', 
                         fontSize=6,
-                        fontName = 'Helvetica-Bold', 
+                        fontName = FONT_BOLD, 
                         alignment=1, 
                         # backColor = '#ffffff',
                         leading = 7)

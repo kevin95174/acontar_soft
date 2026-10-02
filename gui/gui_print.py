@@ -20,6 +20,7 @@ class Window_print(tk.Toplevel):
 		self.config_path = 'config.ini'
 		self.config = configparser.ConfigParser()
 		self.img_label_path = None
+		self._codigo_consultado = None
 		self.grab_set()
 		self.focus_set()
 
@@ -75,7 +76,10 @@ class Window_print(tk.Toplevel):
 			self.lblUbi = ttk.Label(self.Frame1_1, text="Ubicación anterior").grid(column=0, row=6, padx=5, pady=1, sticky=EW)
 					
 					# Entrys
-			self.etrCod = ttk.Entry(self.Frame1_1, textvariable= self.codi, width=20).grid(column=1, row=0, padx=5, pady=1, sticky=EW)
+			self.etrCod = ttk.Entry(self.Frame1_1, textvariable=self.codi, width=20)
+			self.etrCod.grid(column=1, row=0, padx=5, pady=1, sticky=EW)
+			self.etrCod.bind("<Return>", self.enter_codigo)
+			self.codi.trace_add("write", self._codigo_modificado)
 			self.etrAct = ttk.Entry(self.Frame1_1, textvariable= self.acta).grid(column=1, row=1, padx=5, pady=1, sticky=EW)
 			
 			self.etrDen = ttk.Entry(self.Frame1_1, textvariable= self.deno).grid(column=1, row=2, columnspan=3, padx=5, pady=1, sticky=EW)
@@ -86,7 +90,7 @@ class Window_print(tk.Toplevel):
 
 					# Buttons
 			self.btnBus = ttk.Button(self.Frame1_1, text="Buscar", command=lambda:self.buscar()).grid(column=2, row=0, columnspan=2, padx=5, sticky="nsew")
-			self.btnPre = ttk.Button(self.Frame1_1, text="Previzualizar", command=lambda:self.preview_pdf()).grid(column=2, row=1, columnspan=2, padx=5, sticky="nsew")
+			self.btnPre = ttk.Button(self.Frame1_1, text="Previsualizar", command=lambda:self.preview_pdf()).grid(column=2, row=1, columnspan=2, padx=5, sticky="nsew")
 			self.btnImp = ttk.Button(self.Frame1_1, text="Imprimir", command=lambda:self.print_()).grid(column=1, row=10, columnspan=3, padx=5, sticky="nsew")			
 			
 		elif self.valor == 2:
@@ -144,84 +148,125 @@ class Window_print(tk.Toplevel):
 			self.img_label.config(image=self.photo)
 
 	def print_(self):
-		codigo = self.codi.get()
-		acta = self.acta.get()
-		if codigo == "":
-			mb.showerror(message="Ingrese un código", title="¡Atención!")
-		elif acta == "":
-			mb.showerror(message="Ingrese un número de Acta", title="¡Atención!")
-		else:
+		codigo = self.codi.get().strip()
+		acta = self.acta.get().strip()
+		if not codigo or not acta:
+			mb.showerror(title="Atención", message="Ingrese un código y un número de Acta.")
+			return False
+		inventario = self.inve.get().strip()
+		if inventario and inventario.casefold() != "no inventariado":
+			if not mb.askyesno(title="Bien ya inventariado", message=f"Este bien ya figura inventariado en:\n{inventario}\n\n¿Desea imprimir la etiqueta de todas formas?"):
+				return False
+		try:
 			build_label(1, codigo, acta)
+			return True
+		except Exception as e:
+			mb.showerror(title="Error", message=f"No se pudo imprimir la etiqueta:\n{e}")
+			return False
+	def _codigo_modificado(self, *_args):
+		# Un código distinto siempre debe consultarse antes de imprimir.
+		if self.codi.get().strip() != self._codigo_consultado:
+			self._codigo_consultado = None
+
+	def enter_codigo(self, _event=None):
+		codigo = self.codi.get().strip()
+		if not codigo:
+			return "break"
+
+		if self._codigo_consultado == codigo:
+			if self.print_():
+				self.codi.set("")
+				self._codigo_consultado = None
+		else:
+			if self.buscar():
+				self.preview_pdf()
+		return "break"
 
 	def print_sobrante(self):
-
+		if not all(value.get().strip() for value in (self.loca, self.area, self.ofic, self.deno)):
+			mb.showerror(title="Atención", message="Busque un bien sobrante antes de imprimir.")
+			return False
 		try:
 			build_label_sobrante(1, self.loca.get(), self.area.get(), self.ofic.get(), self.deno.get())
+			return True
 		except Exception as e:
-			print(e)
-			mb.showerror(message="Ingrese un número de Acta", title="¡Atención!")
+			mb.showerror(title="Error", message=f"No se pudo imprimir la etiqueta:\n{e}")
+			return False
 
 	def buscar(self):
-		r = mostrar_datos_print(self.codi.get())
-		# print(r)
+		codigo = self.codi.get().strip()
+		self._codigo_consultado = None
+		self._limpiar_datos_inventario()
+		if not codigo:
+			mb.showerror(title="Atención", message="Ingrese un código.")
+			return False
 		try:
-			self.deno.set(r[0])
-			self.codI.set(r[1])
-			self.codP.set(r[2])
-			self.inve.set(r[3])
-			self.ubic.set(r[4])
-		except:
-			mb.showerror(message="Error", title="Error")
+			r = mostrar_datos_print(codigo)
+		except Exception as e:
+			mb.showerror(title="Error", message=f"No se pudieron consultar los datos:\n{e}")
+			return False
+		if not r:
+			mb.showerror(title="Error", message="No se encontraron datos para el código ingresado.")
+			return False
+		self.deno.set(r[0])
+		self.codI.set(r[1])
+		self.codP.set(r[2])
+		self.inve.set(r[3])
+		self.ubic.set(r[4])
+		self._codigo_consultado = codigo
+		return True
+
+	def _limpiar_datos_inventario(self):
+		for variable in (self.deno, self.codI, self.codP, self.inve, self.ubic):
+			variable.set("")
 
 	def buscar_sobrante(self):
-		print(self.codi.get())
-		r = mostrar_datos_sobrante(self.codi.get())
+		codigo = self.codi.get().strip()
+		if not codigo:
+			mb.showerror(title="Atención", message="Ingrese un código de bien sobrante.")
+			return False
 		try:
+			r = mostrar_datos_sobrante(codigo)
+			if not r:
+				mb.showerror(title="Error", message="No se encontraron datos para el código ingresado.")
+				return False
 			self.loca.set(str(r[0]))
 			self.area.set(str(r[1]))
 			self.ofic.set(str(r[2]))
 			self.deno.set(str(r[3]))
-
-			for widget in self.Frame1_2.winfo_children():
-				widget.destroy()
-			
-			r = build_label_sobrante(0, self.loca.get(), self.area.get(), self.ofic.get(), self.deno.get())
-			pdf_document = fitz.open(r)	
-			page = pdf_document[0]
-			pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-			width, height = pix.width, pix.height
-			img_bytes = pix.samples
-			pil_image = Image.frombytes('RGB', (width, height), img_bytes)
-			image = ImageTk.PhotoImage(pil_image)
-			label = tk.Label(self.Frame1_2)
-			label.pack(fill="y", expand=True)
-			label.config(image=image, bg="#b6b6b6")
-			label.image = image
+			pdf_path = build_label_sobrante(0, self.loca.get(), self.area.get(), self.ofic.get(), self.deno.get())
+			self._mostrar_pdf(pdf_path)
+			return True
 		except Exception as e:
-			print(e)
-			mb.showerror(message="Error", title="Error")
-		
+			mb.showerror(title="Error", message=f"No se pudo generar la vista previa:\n{e}")
+			return False
+
 	def preview_pdf(self):
+		codigo = self.codi.get().strip()
+		acta = self.acta.get().strip()
+		if not codigo or not acta:
+			mb.showerror(title="Atención", message="Ingrese un código y un número de Acta.")
+			return False
+		try:
+			pdf_path = build_label(0, codigo, acta)
+			self._mostrar_pdf(pdf_path)
+			return True
+		except Exception as e:
+			mb.showerror(title="Error", message=f"No se pudo generar la vista previa:\n{e}")
+			return False
+
+	def _mostrar_pdf(self, pdf_path):
 		for widget in self.Frame1_2.winfo_children():
 			widget.destroy()
-		
-		r = build_label(0, self.codi.get(), self.acta.get())
-		pdf_document = fitz.open(r)	
-		page = pdf_document[0]
-		pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-		width, height = pix.width, pix.height
-
-		img_bytes = pix.samples
-
-		pil_image = Image.frombytes('RGB', (width, height), img_bytes)
-
+		with fitz.open(pdf_path) as pdf_document:
+			if not pdf_document.page_count:
+				raise ValueError("El PDF no contiene páginas.")
+			pix = pdf_document[0].get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+		pil_image = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
 		image = ImageTk.PhotoImage(pil_image)
-
-		label = tk.Label(self.Frame1_2)
-		label.pack(fill="y", expand=True)
-		label.config(image=image, bg="#b6b6b6")
+		label = tk.Label(self.Frame1_2, image=image, bg="#b6b6b6")
 		label.image = image
-
+		label.pack(fill="y", expand=True)
 	def mostrar_datos(self):
 		r = datos_iniciales()
 		self.ent.set(r[1])
@@ -238,20 +283,7 @@ class Window_print(tk.Toplevel):
 			self.focus_set()
 
 	def test(self):
-		pdf_document = fitz.open("img/label_preview.pdf")
-			
-		page = pdf_document[0]
-		pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-		width, height = pix.width, pix.height
-
-		img_bytes = pix.samples
-
-		pil_image = Image.frombytes('RGB', (width, height), img_bytes)
-
-		image = ImageTk.PhotoImage(pil_image)
-
-		label = tk.Label(self.Frame1_2)
-		label.pack(fill="y", expand=True)
-		label.config(image=image, bg="#b6b6b6")
-		label.image = image
-		
+		try:
+			self._mostrar_pdf("img/label_preview.pdf")
+		except Exception as e:
+			mb.showerror(title="Error", message=f"No se pudo cargar la etiqueta de ejemplo:\n{e}")

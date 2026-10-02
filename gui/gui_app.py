@@ -1,10 +1,14 @@
 import csv
+import json
+import queue
 import sqlite3
 import threading
 import time
 import tkinter as tk
+import qrcode
 from utils.api_client import ApiManagerAcontarSacClient
-from tkinter import ttk, Menu, PhotoImage
+from tkinter import ttk, Menu, PhotoImage, Toplevel
+from PIL import ImageTk
 from tkinter import messagebox as mb
 from db.query import mostrar_datos, mostrar_d_personal, obtener_id_inventory_record, query_codpat, total_bienes, mostrar_datos_test, val_codigo
 from db.query import registrar_inventario_local_pendiente, sincronizar_inventarios_pendientes
@@ -31,6 +35,7 @@ from gui.gui_ficha import Window_Acta
 from gui.gui_connection_test import Window_connection_test
 from gui.gui_view_data import Window_view_data
 from label.label_gen import build_label
+from services.local_print_server import LocalPrintServer
 from label.label_no_cat import build_label_nc
 from funciones.scanner_cam import Window_scanner
 from funciones.socket import Window_server
@@ -75,6 +80,53 @@ class Frame(ttk.Frame):
         self.widgets_buscar()
         self.etrCodpat.bind("<Return>", lambda event: self.registrar(self.valor.get(), self.id.get()))
         self.tree.bind("<Double-Button-1>", self.mostrar_datos_)
+
+        try:
+            self.local_print_server = LocalPrintServer()
+            self.local_print_server.start()
+            self.root.after(100, self._procesar_impresiones_remotas)
+        except OSError as exc:
+            self.local_print_server = None
+            mb.showerror(title="Impresión desde celular", message=f"No se pudo iniciar el servicio local:\n{exc}")
+
+    def _procesar_impresiones_remotas(self):
+        if not self.winfo_exists():
+            return
+        while True:
+            try:
+                job = self.local_print_server.jobs.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                build_label(1, job["codigo"], job["acta"])
+                job["result"] = (200, {"ok": True, "message": "Etiqueta enviada a la impresora"})
+            except Exception as exc:
+                job["result"] = (500, {"ok": False, "error": str(exc)})
+            finally:
+                job["done"].set()
+        self.root.after(100, self._procesar_impresiones_remotas)
+
+    def mostrar_conexion_movil(self):
+        server = self.local_print_server
+        if server is None:
+            mb.showerror(title="Impresión desde celular", message="El servicio local no está disponible.")
+            return
+        url = f"http://{server.local_ip()}:{server.port}/api/imprimir"
+        datos_qr = json.dumps({"url": url, "token": server.token})
+        ventana = Toplevel(self.root)
+        ventana.title("Conectar celular para imprimir")
+        ventana.transient(self.root)
+        ventana.grab_set()
+        ttk.Label(ventana, text="Conecte el celular a la misma red Wi-Fi y use estos datos:").pack(padx=16, pady=(16, 8))
+        qr_image = qrcode.make(datos_qr).resize((220, 220))
+        qr_photo = ImageTk.PhotoImage(qr_image)
+        qr_label = ttk.Label(ventana, image=qr_photo)
+        qr_label.image = qr_photo
+        qr_label.pack(padx=16, pady=8)
+        ttk.Label(ventana, text=f"Dirección: {url}", wraplength=400).pack(padx=16, pady=4)
+        ttk.Label(ventana, text=f"PIN de conexión: {server.token}", wraplength=400).pack(padx=16, pady=4)
+        ttk.Label(ventana, text="El QR contiene la dirección y el PIN. Envíe codigo y acta al endpoint.", wraplength=400).pack(padx=16, pady=(4, 16))
+        ttk.Button(ventana, text="Cerrar", command=ventana.destroy).pack(pady=(0, 12))
 
     def variables(self):
         self.valor = tk.StringVar()
@@ -796,6 +848,7 @@ class Frame(ttk.Frame):
         opc4_menu=Menu(barra_menu, tearoff=0)
         barra_menu.add_cascade(label="Etiquetas", menu=opc4_menu)
         opc4_menu.add_command(label="Imprimir", command=lambda:Window_print(valor=1))
+        opc4_menu.add_command(label="Conectar celular", command=self.mostrar_conexion_movil)
 
         opc5_menu=Menu(barra_menu, tearoff=0)
         barra_menu.add_cascade(label="Inventario", menu=opc5_menu)
