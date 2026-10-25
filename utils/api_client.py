@@ -15,6 +15,7 @@ class ApiConnectionError(Exception):
 
 class ApiManagerAcontarSacClient:
     BASE_URL = "https://api.acontarsac.com"
+    PHOTOS_BASE_URL = "https://admin.acontarsac.com/public"
 
     ENDPOINTS = {
         "ping": "/query/response/ping",
@@ -30,11 +31,33 @@ class ApiManagerAcontarSacClient:
         "create_location": "/query/response/create_or_update_location",
         "create_personnel": "/query/response/create_or_update_personnel",
         "create_surplus": "/query/response/create_or_update_surplus",
+        "login": "/query/response/login",
+        "validate_credentials": "/query/response/validate_credentials",
+        "upload_photo": "/query/response/upload_photo",
     }
 
-    def __init__(self, base_url=None, timeout=30):
+    def __init__(self, base_url=None, photos_base_url=None, timeout=30):
         self.base_url = (base_url or self.BASE_URL).rstrip("/")
+        self.photos_base_url = (photos_base_url or self.PHOTOS_BASE_URL).rstrip("/")
         self.timeout = timeout
+        self.session = None
+
+    def get_photo_url(self, ruta_foto: str) -> str:
+        """Devuelve la URL completa para descargar o visualizar la foto desde el servidor."""
+        if not ruta_foto:
+            return ""
+        if ruta_foto.startswith("http://") or ruta_foto.startswith("https://"):
+            return ruta_foto
+
+        clean = ruta_foto.replace("\\", "/").lstrip("/")
+        base = self.photos_base_url.rstrip("/")
+
+        if clean.startswith("uploads/"):
+            return f"{base}/{clean}"
+        elif clean.startswith("photos/"):
+            return f"{base}/uploads/{clean}"
+        else:
+            return f"{base}/uploads/photos/{clean}"
 
     def request(self, endpoint, payload=None):
         """Envía JSON y devuelve el sobre {success, message, data} de Laravel."""
@@ -100,6 +123,30 @@ class ApiManagerAcontarSacClient:
 
     def dashboard(self):
         return self.request(self.ENDPOINTS["dashboard"])
+
+    def validate_credentials(self, usuario, password):
+        """Valida credenciales en el servidor central."""
+        return self.request(self.ENDPOINTS["validate_credentials"], {"usuario": usuario, "password": password})
+
+    def login(self, usuario, password):
+        """Autentica credenciales en la API Laravel."""
+        return self.validate_credentials(usuario, password)
+
+    def upload_photo(self, record_id: int, user_id: int, file_path: str) -> dict:
+        """Sube una fotografía de un bien al servidor."""
+        url = self.base_url + self.ENDPOINTS.get("upload_photo", "/query/response/upload_photo")
+        try:
+            with open(file_path, "rb") as f:
+                files = {"photo": f}
+                data = {"id": int(record_id), "user_id": int(user_id)}
+                resp = requests.post(url, data=data, files=files, timeout=60)
+                try:
+                    payload = resp.json()
+                except Exception:
+                    payload = {"message": resp.text[:200]}
+                return {"status_code": resp.status_code, "data": payload}
+        except Exception as e:
+            return {"status_code": 500, "data": {"message": str(e)}}
 
     def update_ubicacion_final(self, record_id: int, codigo_ubicacion_final: str, user_id: int) -> dict:
         # 1. Garantizar que la sesión exista antes de llamar a post()

@@ -91,6 +91,11 @@ class ApiManagerAcontarSac
                     ->orderBy('id')
                     ->limit($limit)
                     ->get(),
+                'users' => ApiModelUsers::query()
+                    ->where('estado', 1)
+                    ->orderBy('id')
+                    ->limit($limit)
+                    ->get(),
                 'limit' => $limit,
                 'server_time' => now()->format('Y-m-d H:i:s'),
             ], 'Sincronización inicial obtenida correctamente.');
@@ -426,6 +431,12 @@ class ApiManagerAcontarSac
                         ->limit($limit)
                         ->get(),
                     'assets' => ApiModelAssets::query()
+                        ->where('updated_at', '>', $lastSync)
+                        ->orderBy('updated_at')
+                        ->orderBy('id')
+                        ->limit($limit)
+                        ->get(),
+                    'users' => ApiModelUsers::query()
                         ->where('updated_at', '>', $lastSync)
                         ->orderBy('updated_at')
                         ->orderBy('id')
@@ -861,6 +872,61 @@ class ApiManagerAcontarSac
                 $exception,
                 __METHOD__,
                 'No fue posible crear el usuario.',
+                $this->removeSensitiveData($data)
+            );
+        }
+    }
+
+    public function validateCredentials(mixed $pdo, array $data): JsonResponse
+    {
+        return $this->login($pdo, $data);
+    }
+
+    public function login(mixed $pdo, array $data): JsonResponse
+    {
+        $validator = Validator::make(
+            $data,
+            [
+                'usuario' => ['required', 'string'],
+                'password' => ['required', 'string'],
+            ],
+            [
+                'usuario.required' => 'El usuario es obligatorio.',
+                'password.required' => 'La contraseña es obligatoria.',
+            ]
+        );
+
+        if ($validator->fails()) {
+            throw new ValidationException($validator);
+        }
+
+        try {
+            $validated = $validator->validated();
+            $user = ApiModelUsers::query()
+                ->where('usuario', trim($validated['usuario']))
+                ->where('estado', 1)
+                ->first();
+
+            if (!$user || !Hash::check($validated['password'], $user->password_hash)) {
+                return $this->error('Usuario o contraseña incorrectos.', 401);
+            }
+
+            return $this->success([
+                'id' => $user->id,
+                'nombres' => $user->nombres,
+                'apellidos' => $user->apellidos,
+                'usuario' => $user->usuario,
+                'correo' => $user->correo,
+                'rol' => $user->rol,
+                'token' => $user->token ?? '',
+            ], 'Inicio de sesión exitoso.');
+        } catch (ValidationException $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            return $this->serverError(
+                $exception,
+                __METHOD__,
+                'Error al autenticar usuario.',
                 $this->removeSensitiveData($data)
             );
         }

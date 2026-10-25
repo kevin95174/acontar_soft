@@ -34,6 +34,7 @@ from gui.gui_reporte import Window_reporte
 from gui.gui_ficha import Window_Acta
 from gui.gui_connection_test import Window_connection_test
 from gui.gui_view_data import Window_view_data
+from gui.gui_asset_photos import Window_asset_photos
 from label.label_gen import build_label
 from services.local_print_server import LocalPrintServer
 from label.label_no_cat import build_label_nc
@@ -903,6 +904,12 @@ class Frame(ttk.Frame):
         opc11_menu.add_command(label="Probar conexión", command=lambda:Window_connection_test(self))
         opc11_menu.add_command(label="Iniciar servidor", command=lambda:Window_server(self))
         opc11_menu.add_command(label="ver tablas", command=lambda:Window_view_data(self))
+        opc11_menu.add_command(label="Fotos del servidor (asset_photos)", command=lambda:Window_asset_photos(self))
+
+        opc12_menu = Menu(barra_menu, tearoff=0)
+        barra_menu.add_cascade(label="Fotos", menu=opc12_menu)
+        opc12_menu.add_command(label="Galería de Fotos (asset_photos)", command=lambda:Window_asset_photos(self))
+        opc12_menu.add_command(label="Asociar / Subir Foto", command=lambda:Window_asset_photos(self).dialogo_asociar_foto())
 
     def sincronizar_en_segundo_plano(self, intervalo_minutos=15):
         """Ejecuta sync_changes al iniciar y luego automáticamente cada X minutos."""

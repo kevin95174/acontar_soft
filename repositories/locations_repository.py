@@ -16,11 +16,12 @@ class LocationsRepository:
                 piso,
                 direccion,
                 codigo_personal,
+                team_id,
                 created_at,
                 updated_at,
                 deleted_at
             )
-            VALUES(?,?,?,?,?,?,?,?,?,?,?)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
         """,
         (
             location.get("id"),
@@ -31,6 +32,7 @@ class LocationsRepository:
             location.get("piso"),
             location.get("direccion"),
             location.get("codigo_personal"),
+            location.get("team_id", ""),
             location.get("created_at"),
             location.get("updated_at"),
             location.get("deleted_at")

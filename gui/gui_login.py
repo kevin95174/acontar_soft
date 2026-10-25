@@ -60,18 +60,18 @@ class Frame_login(ttk.Frame):
 		self.user = tk.StringVar()
 		self.passw = tk.StringVar()
 
-			# Labels
+		# Labels
 		self.lblUser = tk.Label(self.Frame1_2, text="Usuario", bg="#585858", 
 		fg="#ffffff", font=("Helvetica-Bold", 12)).grid(column=0, row=0, padx=5, pady=10, sticky="w")
 		self.lblPass = tk.Label(self.Frame1_2, text="Contraseña", bg="#585858", 
 		fg="#ffffff", font=("Helvetica-Bold", 12)).grid(column=0, row=1, padx=5, pady=1, sticky="w")
 
-			# Entrys
+		# Entrys
 		self.etrUser = ttk.Entry(self.Frame1_2, textvariable= self.user)
 		self.etrUser.grid(column=1, row=0, padx=5, pady=1, sticky="ew")
 		self.etrPass = ttk.Entry(self.Frame1_2, textvariable= self.passw, show="*").grid(column=1, row=1,padx=5, pady=1, sticky="ew")
 
-			# Buttons
+		# Buttons
 		self.btnEtr = tk.Button(self.Frame1_2, text="Entrar", bg="#e30613",
 			fg="#ffffff", font=("Helvetica-Bold", 10), command=self.validar_ingreso)
 		self.btnEtr.grid(column=1, row=3, padx=5, pady=10, sticky="ew")
@@ -79,7 +79,42 @@ class Frame_login(ttk.Frame):
 		self.btnReg = tk.Button(self.Frame1_2, text="Registrar", bg="#e30613",
 			fg="#ffffff", font=("Helvetica-Bold", 10), command=self.abrir_ventana)
 		self.btnReg.grid(column=1, row=4, padx=5, pady=1, sticky="ew")
+
+		self.btnSync = tk.Button(self.Frame1_2, text="🔄 Sincronizar Servidor", bg="#2c3e50",
+			fg="#ffffff", font=("Helvetica-Bold", 10), command=self.abrir_sincronizacion)
+		self.btnSync.grid(column=1, row=5, padx=5, pady=5, sticky="ew")
+
 		self.etrUser.focus_set()
+
+		# Verificación proactiva de primer inicio
+		self.root.after(300, self.verificar_primer_inicio)
+
+	def abrir_sincronizacion(self):
+		"""Abre la ventana de sincronización para conectar con el servidor directamente desde el login."""
+		self.root.api_client = getattr(self, 'api_client', None) or getattr(self.root, 'api_client', None)
+		win_sync = Window_connection_test(root=self.root)
+		win_sync.grab_set()
+
+	def verificar_primer_inicio(self):
+		"""Detecta si es el primer inicio o no hay usuarios locales descargados."""
+		try:
+			db_path = getattr(self.root, "db_path", self.db_path or "db/orap2022.db")
+			conn = sqlite3.connect(db_path)
+			cur = conn.cursor()
+			cur.execute("SELECT COUNT(*) FROM usuarios")
+			total_usuarios = cur.fetchone()[0]
+			conn.close()
+
+			if not self.sync_realizado or total_usuarios == 0:
+				resp = mb.askyesno(
+					title="Primer Inicio - AcontarSoft",
+					message="Se detectó que es el primer inicio del sistema y aún no hay usuarios locales descargados.\n\n"
+					        "¿Desea abrir la ventana de Sincronización para descargar los usuarios y datos del servidor ahora?"
+				)
+				if resp:
+					self.abrir_sincronizacion()
+		except Exception as e:
+			print(f"Nota en verificación de primer inicio: {e}")
 
 	def validar_ingreso(self):
 		u = self.user.get().strip()
@@ -104,7 +139,7 @@ class Frame_login(ttk.Frame):
 				api_client = getattr(self, 'api_client', None) or getattr(self.root, 'api_client', None)
 
 				# 2. Obtener la ruta de la BD registrada en root
-				db_path = getattr(self.root, "db_path", "db/orap2022.db")
+				db_path = getattr(self.root, "db_path", self.db_path or "db/orap2022.db")
 				db_conn = sqlite3.connect(db_path)
 
 				# 3. Persistir usuario activo en app_config
@@ -139,7 +174,55 @@ class Frame_login(ttk.Frame):
 					)
 
 			else:
-				mb.showwarning(message="Usuario o contraseña incorrectos.", title="Atención")
+				# Si la validación local falló, intentar autenticación remota con el servidor
+				api_client = getattr(self, 'api_client', None) or getattr(self.root, 'api_client', None)
+				autenticado_online = False
+				if api_client:
+					try:
+						res_api = api_client.validate_credentials(u, p)
+						if res_api and res_api.get("success"):
+							user_data = res_api.get("data", {})
+							db_path = getattr(self.root, "db_path", self.db_path or "db/orap2022.db")
+							conn = sqlite3.connect(db_path)
+							cur = conn.cursor()
+							cur.execute("""
+								INSERT OR REPLACE INTO usuarios (
+									id, usuario, password, Nombres, APat, AMat, dni, equipo
+								) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+							""", (
+								user_data.get("id"),
+								user_data.get("usuario", u),
+								p,
+								user_data.get("nombres", ""),
+								user_data.get("apellidos", ""),
+								"",
+								str(user_data.get("id", "")),
+								user_data.get("rol", "")
+							))
+							conn.commit()
+							conn.close()
+							autenticado_online = True
+					except Exception as ex_net:
+						print(f"Intento de autenticación en línea no completado: {ex_net}")
+
+				if autenticado_online:
+					return self.validar_ingreso()
+
+				db_path = getattr(self.root, "db_path", self.db_path or "db/orap2022.db")
+				conn = sqlite3.connect(db_path)
+				cur = conn.cursor()
+				cur.execute("SELECT COUNT(*) FROM usuarios")
+				count_u = cur.fetchone()[0]
+				conn.close()
+
+				if count_u == 0:
+					mb.showwarning(
+						message="La base de datos local aún no tiene usuarios descargados.\n\n"
+						        "Por favor, pulse el botón 'Sincronizar Servidor' para descargar los usuarios.",
+						title="Primer Inicio Requerido"
+					)
+				else:
+					mb.showwarning(message="Usuario o contraseña incorrectos.", title="Atención")
 
 		except Exception as e:
 			mb.showerror(message=f"Error inesperado al iniciar sesión:\n{str(e)}", title="Error")
@@ -175,4 +258,4 @@ class Frame_login(ttk.Frame):
 			login_register(u, self.vPass.get(), self.vNomb.get(), self.vApat.get(), self.vAmat.get(), self.vNdni.get(), self.vEqui.get())
 			mb.showinfo(message="Registrado exitosamente", title="AEC SAC")
 		except:
-			mb.showerror(message="Mensaje de error", title="¡Atencion")					
+			mb.showerror(message="Mensaje de error", title="¡Atencion")

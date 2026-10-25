@@ -8,27 +8,29 @@ class SurplusRepository:
         for item in surplus_list:
             cursor.execute("""
                 INSERT OR REPLACE INTO surplus(
-                    id, codigo_ubicacion, codigo_personal, denominacion,
-                    marca, modelo, tipo, color, serie, dimension, otros,
-                    situacion, estado_conservacion, observacion,
-                    created_at, updated_at, deleted_at
+                    id, codigo_interno, codigo_patrimonial, codigo_ubicacion,
+                    codigo_personal, denominacion, marca, modelo, tipo, color,
+                    serie, dimension, otros, situacion, estado_conservacion,
+                    observacion, created_at, updated_at, deleted_at
                 )
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """, (
                 item.get("id"),
-                item.get("codigo_ubicacion"),
-                item.get("codigo_personal"),
-                item["denominacion"],
-                item.get("marca"),
-                item.get("modelo"),
-                item.get("tipo"),
-                item.get("color"),
-                item.get("serie"),
-                item.get("dimension"),
-                item.get("otros"),
-                item.get("situacion"),
-                item.get("estado_conservacion"),
-                item.get("observacion"),
+                item.get("codigo_interno", ""),
+                item.get("codigo_patrimonial", ""),
+                item.get("codigo_ubicacion", 0),
+                item.get("codigo_personal", 0),
+                item.get("denominacion", ""),
+                item.get("marca", ""),
+                item.get("modelo", ""),
+                item.get("tipo", ""),
+                item.get("color", ""),
+                item.get("serie", ""),
+                item.get("dimension", ""),
+                item.get("otros", ""),
+                item.get("situacion", ""),
+                item.get("estado_conservacion", ""),
+                item.get("observacion", ""),
                 item.get("created_at"),
                 item.get("updated_at"),
                 item.get("deleted_at")

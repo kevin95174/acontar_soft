@@ -21,7 +21,7 @@ class UpdateUbicacionFinalClientTests(unittest.TestCase):
 
         self.assertEqual(200, result["status_code"])
         self.assertEqual(
-            "https://example.test/api/inventory/update_ubicacion_final",
+            "https://example.test/query/response/update_ubicacion_final",
             post.call_args.args[0],
         )
         self.assertEqual(
@@ -42,6 +42,36 @@ class UpdateUbicacionFinalClientTests(unittest.TestCase):
 
         self.assertEqual(409, result["status_code"])
         self.assertFalse(result["data"]["success"])
+
+    def test_get_photo_url_construction(self):
+        client = ApiManagerAcontarSacClient()
+        base = "https://admin.acontarsac.com/public"
+
+        # Caso 1: Ruta relativa estándar uploads/photos/...
+        self.assertEqual(
+            f"{base}/uploads/photos/39_20261021_093818_361b1711.jpg",
+            client.get_photo_url("uploads/photos/39_20261021_093818_361b1711.jpg")
+        )
+
+        # Caso 2: Solo nombre de archivo
+        self.assertEqual(
+            f"{base}/uploads/photos/39_20261021_093818_361b1711.jpg",
+            client.get_photo_url("39_20261021_093818_361b1711.jpg")
+        )
+
+        # Caso 3: Path con separador Windows
+        self.assertEqual(
+            f"{base}/uploads/photos/39_20261021_093818_361b1711.jpg",
+            client.get_photo_url("uploads\\photos\\39_20261021_093818_361b1711.jpg")
+        )
+
+        # Caso 4: URL absoluta ya existente
+        full_url = "https://admin.acontarsac.com/public/uploads/photos/39_20261021_093818_361b1711.jpg"
+        self.assertEqual(full_url, client.get_photo_url(full_url))
+
+        # Caso 5: Vacío
+        self.assertEqual("", client.get_photo_url(""))
+        self.assertEqual("", client.get_photo_url(None))
 
 
 if __name__ == "__main__":

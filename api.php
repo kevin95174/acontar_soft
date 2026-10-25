@@ -20,6 +20,10 @@ Route::post('/query/response/update_technical_details', [ViewsControllerApi::cla
     ->name('api.query.update-technical-details');
 Route::post('/query/response/create_user', [ViewsControllerApi::class, 'create_user'])
     ->name('api.query.create-user');
+Route::post('/query/response/login', [ViewsControllerApi::class, 'login'])
+    ->name('api.query.login');
+Route::post('/query/response/validate_credentials', [ViewsControllerApi::class, 'validate_credentials'])
+    ->name('api.query.validate-credentials');
 Route::post('/query/response/create_or_update_location', [ViewsControllerApi::class, 'create_or_update_location'])
     ->name('api.query.create-or-update-location');
 Route::post('/query/response/create_or_update_personnel', [ViewsControllerApi::class, 'create_or_update_personnel'])

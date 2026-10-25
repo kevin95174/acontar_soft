@@ -945,7 +945,7 @@ def login(user, passw):
 def login_user(user, passw):
     try:
         conn_sqlite = iniciar_conexion_sqlite()
-        sql_sqlite = f"""SELECT Nombres ||' '|| APat ||' '|| AMat AS name, dni, equipo FROM usuarios WHERE usuario = ? AND password = ? """
+        sql_sqlite = f"""SELECT Nombres ||' '|| APat ||' '|| AMat AS name, dni, equipo, id FROM usuarios WHERE usuario = ? AND password = ? """
         cur = conn_sqlite.cursor()
         cur.execute(sql_sqlite, (user, passw))
         books = cur.fetchall()

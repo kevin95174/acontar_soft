@@ -37,147 +37,208 @@ if os.path.exists(_ROBOTO_REG_PATH) and os.path.exists(_ROBOTO_BOLD_PATH):
     except Exception:
         pass
 
-def build_label(valor, codigo, codact):
-        
-        config_instance = ConfigUtils()
-        direccion = config_instance.load_config()
+def _get_label_styles():
+    return {
+        'denom': ParagraphStyle(
+            name='BatchDenom',
+            fontSize=5,
+            fontName=FONT_REGULAR,
+            alignment=0,
+            borderPadding=1,
+            leading=5
+        ),
+        'cod': ParagraphStyle(
+            name='BatchCod',
+            fontSize=11,
+            fontName=FONT_BOLD,
+            alignment=0,
+            leading=7
+        ),
+        'inv': ParagraphStyle(
+            name='BatchInv',
+            fontSize=6,
+            fontName=FONT_BOLD,
+            alignment=2,
+            charSpace=-5.0
+        ),
+        'cod_p': ParagraphStyle(
+            name='BatchCodP',
+            fontSize=8,
+            fontName=FONT_BOLD,
+            alignment=0,
+            leading=7
+        ),
+        'ubi': ParagraphStyle(
+            name='BatchUbi',
+            fontSize=4,
+            fontName=FONT_REGULAR,
+            alignment=0,
+            leading=5
+        ),
+        'entid': ParagraphStyle(
+            name='BatchEntid',
+            fontSize=5.5,
+            fontName=FONT_REGULAR,
+            alignment=0
+        )
+    }
 
-        datos_ini = datos_iniciales()
+def _safe_xml(txt):
+    return str(txt or '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
-        r = data_label(codigo)
-        # print(r)
-        j = data_label_ubi(codact)
-        den = str(r[0][2])
-        codint = str(r[0][0])
-        inv = 'INVENTARIO ' + str(datos_ini[2])
-        codpatr = str(r[0][1])
-        ubi = str(j[0][0])
-        entidad = datos_ini[1]
+def draw_label_page(c, den, codint, codpatr, ubi, inv, entidad, styles, logo_reader=None):
+    qr_payload = str(codpatr).strip() if str(codpatr).strip() else str(codint).strip()
+    qr_image = qrcode.make(qr_payload)
+    qr_buffer = io.BytesIO()
+    qr_image.save(qr_buffer, format='PNG')
+    qr_buffer.seek(0)
 
-        pdf = str(r[0][0])+"_"+str(r[0][1])+"_"+str(r[0][3])
-        pdf_name= str(pdf)+".pdf"
-        pathinit = 'labels/'
-        pathpdf = os.path.join(pathinit, pdf_name)
+    p_denom = Paragraph(_safe_xml(den), styles['denom'])
+    p_cod_i = Paragraph(_safe_xml(codint), styles['cod'])
+    p_inven = Paragraph(_safe_xml(inv), styles['inv'])
+    p_cod_p = Paragraph(_safe_xml(codpatr), styles['cod_p'])
+    p_ubica = Paragraph(_safe_xml(ubi), styles['ubi'])
+    p_entid = Paragraph(_safe_xml(entidad), styles['entid'])
 
-        c = canvas.Canvas(pathpdf)
-        c.setPageSize((5*cm, 2.5*cm))
+    # QR
+    c.drawImage(ImageReader(qr_buffer), 31*mm, 4*mm, width=18*mm, height=18*mm, mask='auto')
 
-        # El QR identifica el bien con ambos códigos para que la aplicación
-        # pueda localizarlo aun si uno de ellos cambia de formato visual.
-        qr_payload = codpatr
-        qr_image = qrcode.make(qr_payload)
-        qr_buffer = io.BytesIO()
-        qr_image.save(qr_buffer, format='PNG')
-        qr_buffer.seek(0)
+    # Logo
+    if logo_reader is not None:
+        c.drawImage(logo_reader, 1*mm, 19*mm, width=15, height=15, mask='auto')
 
-        formato_denominacion = ParagraphStyle(name='Body', 
-                        fontSize=5, 
-                        fontName = FONT_REGULAR,
-                        alignment=0, 
-                        # backColor = '#FFFF00',
-                        borderPadding= 1,
-                        # borderWidth = 0.25,
-                        # borderColor = '#000000',
-                        leading = 5)
+    p_denom.wrapOn(c, 30*mm, 10*mm)
+    p_denom.drawOn(c, 2*mm, c._pagesize[1] - 6.5*mm - p_denom.height)
 
-        formato_codigo = ParagraphStyle(name='Body', 
-                        fontSize=11,
-                        fontName = FONT_BOLD, 
-                        # borderWidth = 0.25,
-                        # borderColor = '#000000',
-                        alignment=0, 
-                        leading = 7)
+    p_cod_i.wrapOn(c, 12*mm, 8*mm)
+    p_cod_i.drawOn(c, 2*mm, 3.5*mm)
 
-        formato_inventario = ParagraphStyle(name='Body', 
-                        fontSize=6,
-                        fontName = FONT_BOLD, 
-                        alignment=2,
-                        # borderWidth = 0.25,
-                        # borderColor = '#000000',
-                        # backColor = '#ffffff',
-                        # rotation=90,
-                        charSpace=-5.0)
+    p_inven.wrapOn(c, 20*mm, 15*mm)
+    p_inven.drawOn(c, 27*mm, 1*mm)
 
-        formato_cod_patrimonial = ParagraphStyle(name='Body', 
-                        fontSize=8,
-                        fontName = FONT_BOLD, 
-                        alignment=0,
-                        # borderWidth = 0.25,
-                        # borderColor = '#000000',
-                        leading = 7)
+    p_cod_p.wrapOn(c, 20*mm, 5.8*mm)
+    p_cod_p.drawOn(c, 2*mm, 10.5*mm)
 
-        formato_ubicacion = ParagraphStyle(name='Body', 
-                        fontSize=4,
-                        fontName = FONT_REGULAR, 
-                        alignment=0, 
-                        # backColor = '#ffffff',
-                        # borderWidth = 0.25,
-                        # borderColor = '#000000',
-                        leading = 5)
+    p_ubica.wrapOn(c, 30*mm, 10*mm)
+    p_ubica.drawOn(c, 2*mm, c._pagesize[1] - 15.5*mm - p_ubica.height)
 
-        formato_entid = ParagraphStyle(name='Body', 
-                        fontSize=5.5,
-                        fontName = FONT_REGULAR, 
-                        alignment=0, 
-                        # backColor = '#ffffff',
-                        )
+    p_entid.wrapOn(c, 45*mm, 5*mm)
+    p_entid.drawOn(c, 7*mm, 19*mm)
 
-        p_denom = Paragraph(den, formato_denominacion)
-        p_cod_i = Paragraph(codint, formato_codigo)
-        p_inven = Paragraph(inv, formato_inventario)
-        p_cod_p = Paragraph(codpatr, formato_cod_patrimonial)
-        p_ubica = Paragraph(ubi, formato_ubicacion)
-        p_entid = Paragraph(entidad, formato_entid)
-
-        # Código QR: se deja un borde blanco para facilitar su lectura al imprimir.
-        c.drawImage(
-                ImageReader(qr_buffer),
-                31*mm, 4*mm, width=18*mm, height=18*mm, mask='auto')
-
-        # logo = ImageReader("img/pro.jpg")
-        # Rasterizar el logo a la densidad de impresión, conservando la caja
-        # física actual (15 x 15 puntos) y su ubicación en la etiqueta.
-        logo_width_pt = 15
-        logo_height_pt = 15
-        logo_width_px = round(logo_width_pt * PRINT_DPI / 72)
-        logo_height_px = round(logo_height_pt * PRINT_DPI / 72)
-        with Image.open(direccion[0]) as logo_source:
-                logo = logo_source.convert("RGBA").resize(
-                        (logo_width_px, logo_height_px),
-                        Image.Resampling.BILINEAR)
-        c.drawImage(ImageReader(logo), 1*mm, 19*mm,
-                    width=logo_width_pt, height=logo_height_pt, mask='auto')
-
-        # wrapOn Tamaño de la caja
-        p_denom.wrapOn(c, 30*mm, 10*mm)
-        # drawOn Posicion de la caja
-        p_denom.drawOn(c, 2*mm, c._pagesize[1] - 6.5*mm - p_denom.height)
-
-        p_cod_i.wrapOn(c, 12*mm, 8*mm)
-        p_cod_i.drawOn(c, 2*mm, 3.5*mm)
-
-        p_inven.wrapOn(c, 20*mm, 15*mm)
-        p_inven.drawOn(c, 27*mm, 1*mm)
-
-        p_cod_p.wrapOn(c, 20*mm, 5.8*mm)
-        p_cod_p.drawOn(c, 2*mm, 10.5*mm)
-
-        p_ubica.wrapOn(c, 30*mm, 10*mm)
-        p_ubica.drawOn(c, 2*mm, c._pagesize[1] - 15.5*mm - p_ubica.height)
-
-        p_entid.wrapOn(c, 45*mm, 5*mm)
-        p_entid.drawOn(c, 7*mm, 19*mm)
-
-        c.showPage()
+def _cargar_logo_reader(direccion):
+    if direccion and len(direccion) > 0 and os.path.exists(direccion[0]):
         try:
-                c.save()
-                if valor == 1:
-                        try:
-                                win32api.ShellExecute (0, "print", pdf_name, None, "labels/", 0)
-                        except:
-                                win32api.ShellExecute (0, "print", pdf_name, None, "labels", 0)
-        except:
-                mb.showerror(message="""Ha ocurrido un error, revise si el PDF este abierto o que la impresora este bien configurada""", title="Error")
+            logo_width_pt = 15
+            logo_height_pt = 15
+            logo_width_px = round(logo_width_pt * PRINT_DPI / 72)
+            logo_height_px = round(logo_height_pt * PRINT_DPI / 72)
+            with Image.open(direccion[0]) as logo_source:
+                logo = logo_source.convert("RGBA").resize(
+                    (logo_width_px, logo_height_px), Image.Resampling.BILINEAR)
+                return ImageReader(logo)
+        except Exception as e:
+            print(f"Error cargando logo para etiqueta: {e}")
+    return None
 
-        return pathpdf
+def build_label(valor, codigo, codact, oficina_personalizada=None):
+    config_instance = ConfigUtils()
+    direccion = config_instance.load_config()
 
+    datos_ini = datos_iniciales()
+
+    r = data_label(codigo)
+    if not r:
+        raise ValueError(f"No se encontraron datos de etiqueta para el código: {codigo}")
+
+    if oficina_personalizada is not None and str(oficina_personalizada).strip():
+        ubi = str(oficina_personalizada).strip()
+    else:
+        j = data_label_ubi(codact)
+        ubi = str(j[0][0]) if (j and len(j) > 0 and len(j[0]) > 0 and j[0][0] is not None) else ""
+    den = str(r[0][2])
+    codint = str(r[0][0])
+    inv = 'INVENTARIO ' + str(datos_ini[2])
+    codpatr = str(r[0][1])
+
+    entidad = datos_ini[1]
+
+    pdf = str(r[0][0]) + "_" + str(r[0][1]) + "_" + str(r[0][3])
+    pdf_name = str(pdf) + ".pdf"
+    pathinit = 'labels/'
+    os.makedirs(pathinit, exist_ok=True)
+    pathpdf = os.path.join(pathinit, pdf_name)
+
+    c = canvas.Canvas(pathpdf)
+    c.setPageSize((5*cm, 2.5*cm))
+
+    styles = _get_label_styles()
+    logo_reader = _cargar_logo_reader(direccion)
+
+    draw_label_page(c, den, codint, codpatr, ubi, inv, entidad, styles, logo_reader)
+    c.showPage()
+    try:
+        c.save()
+        if valor == 1:
+            try:
+                win32api.ShellExecute(0, "print", pdf_name, None, "labels/", 0)
+            except Exception:
+                win32api.ShellExecute(0, "print", pdf_name, None, "labels", 0)
+    except Exception as e:
+        mb.showerror(message=f"Ha ocurrido un error, revise si el PDF está abierto o que la impresora esté bien configurada:\n{e}", title="Error")
+
+    return pathpdf
+
+def build_label_batch(items, valor=0, output_name=None, oficina_personalizada_global=None):
+    """
+    Genera un único archivo PDF con múltiples páginas de etiquetas (una por cada ítem).
+    Permite enviar a la impresora térmica todo el lote de una sola vez si valor == 1.
+    """
+    if not items:
+        raise ValueError("No hay elementos para generar etiquetas.")
+
+    config_instance = ConfigUtils()
+    direccion = config_instance.load_config()
+    datos_ini = datos_iniciales()
+    entidad = str(datos_ini[1]) if (datos_ini and len(datos_ini) > 1) else ""
+    inv = 'INVENTARIO ' + str(datos_ini[2]) if (datos_ini and len(datos_ini) > 2) else "INVENTARIO"
+
+    styles = _get_label_styles()
+    logo_reader = _cargar_logo_reader(direccion)
+
+    pathinit = 'labels/lotes/'
+    os.makedirs(pathinit, exist_ok=True)
+    if not output_name:
+        import time
+        output_name = f"lote_{time.strftime('%Y%m%d_%H%M%S')}.pdf"
+    if not output_name.lower().endswith('.pdf'):
+        output_name += ".pdf"
+
+    pathpdf = os.path.join(pathinit, output_name)
+    c = canvas.Canvas(pathpdf)
+    c.setPageSize((5*cm, 2.5*cm))
+
+    for item in items:
+        den = str(item.get('deno', '') or item.get('DenBien', '') or '')
+        codint = str(item.get('codint', '') or item.get('CodInt', '') or '')
+        codpatr = str(item.get('codpat', '') or item.get('codpatr', '') or item.get('CodPat', '') or '')
+
+        if oficina_personalizada_global and str(oficina_personalizada_global).strip():
+            ubi = str(oficina_personalizada_global).strip()
+        else:
+            ubi = str(item.get('oficina_etiqueta', '') or item.get('oficina', '') or item.get('oficina_actual', '') or item.get('oficina_anterior', '') or '').strip()
+
+        draw_label_page(c, den, codint, codpatr, ubi, inv, entidad, styles, logo_reader)
+        c.showPage()
+
+    try:
+        c.save()
+        if valor == 1:
+            try:
+                win32api.ShellExecute(0, "print", output_name, None, pathinit, 0)
+            except Exception:
+                win32api.ShellExecute(0, "print", pathpdf, None, None, 0)
+    except Exception as e:
+        mb.showerror(message=f"Ha ocurrido un error al guardar o imprimir el lote:\n{e}", title="Error")
+        return None
+
+    return pathpdf

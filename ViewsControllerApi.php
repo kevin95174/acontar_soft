@@ -261,6 +261,36 @@ class ViewsControllerApi extends Controller
     }
 
     /**
+     * Autentica a un usuario con usuario y contraseña contra el servidor.
+     *
+     * @param Request $request Solicitud HTTP con usuario y contraseña.
+     *
+     * @return JsonResponse Respuesta con los datos del usuario o error 401.
+     */
+    public function login(Request $request): JsonResponse
+    {
+        return $this->apiManager->login(
+            null,
+            $request->all()
+        );
+    }
+
+    /**
+     * Valida credenciales de usuario con usuario y contraseña contra el servidor.
+     *
+     * @param Request $request Solicitud HTTP con usuario y contraseña.
+     *
+     * @return JsonResponse Respuesta con los datos del usuario o error 401.
+     */
+    public function validate_credentials(Request $request): JsonResponse
+    {
+        return $this->apiManager->validateCredentials(
+            null,
+            $request->all()
+        );
+    }
+
+    /**
      * Crea una ubicación o actualiza una ubicación existente.
      *
      * Datos de entrada esperados:
