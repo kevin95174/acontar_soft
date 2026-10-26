@@ -1,36 +1,79 @@
 import tkinter as tk
 from datetime import datetime
 from tkinter import ttk
-from db.query import buscar_bien_d, actualizar_detalles, actualizar_registro, cambio_detalles, insertar_tabla2
 from tkinter import messagebox as mb
+from db.query import (
+	buscar_bien_d,
+	actualizar_detalles,
+	actualizar_registro,
+	cambio_detalles,
+	insertar_tabla2
+)
+from utils.helpers import resource_path
 
 
 class Window_detalles(tk.Toplevel):
+	"""Ventana emergente para consultar y editar las especificaciones técnicas de un bien."""
+
 	def __init__(self, root=None, user=None, team=None, codigo=None):
 		super().__init__(root)
-
-		self.protocol("WM_DELETE_WINDOW", self.on_closing)
-		self.resizable(0,0)
 		self.root = root
 		self.user = user
 		self.team = team
 		self.codigo = codigo
 		self.accion = None
-		self.title("Detalles")
-		self.iconbitmap('./img/favicon.ico')
-		style = ttk.Style()
-		style.configure('Custom.TFrame', background='#ffffff')
-		style.configure('Custom.TEntry')
-		self.frameU = ttk.Frame(self, style='Custom.TFrame')
-		self.frameU.pack(fill='both', expand=True, padx=10, pady=10)
-		# self.grab_set()
-		self.focus_set()
+
+		self.title("Ficha Detallada del Bien — AcontarSoft")
+		self.geometry("860x560")
+		self.resizable(False, False)
+		self.configure(bg="#f8fafc")
+		if root:
+			self.transient(root)
+
+		self.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+		self._cargar_icono()
+		self._centrar_ventana(860, 560)
+		self._configurar_estilos()
+
 		self.variables()
 		self.widgets()
 		self.buscar_cod()
-	
+		self.focus_set()
+
+	# -------------------------------------------------------------------------
+	# CONFIGURACIÓN DE VENTANA Y ESTILOS
+	# -------------------------------------------------------------------------
+	def _cargar_icono(self):
+		try:
+			self.iconbitmap(resource_path("img/favicon.ico"))
+		except Exception:
+			pass
+
+	def _centrar_ventana(self, w, h):
+		self.update_idletasks()
+		sw = self.winfo_screenwidth()
+		sh = self.winfo_screenheight()
+		x = (sw - w) // 2
+		y = (sh - h) // 2
+		self.geometry(f"{w}x{h}+{x}+{y}")
+
+	def _configurar_estilos(self):
+		style = ttk.Style(self)
+		style.configure("Detalles.TLabelframe",
+			background="#ffffff",
+			relief="solid",
+			borderwidth=1,
+			bordercolor="#e2e8f0"
+		)
+		style.configure("Detalles.TLabelframe.Label",
+			background="#ffffff",
+			foreground="#334155",
+			font=("Segoe UI", 9, "bold")
+		)
+
 	def on_closing(self):
-		pass
+		self.cancelar_codigo()
 
 	def variables(self):
 		self.codi = tk.StringVar()
@@ -43,12 +86,12 @@ class Window_detalles(tk.Toplevel):
 		self.fech = tk.StringVar()
 		self.dadq = tk.StringVar()
 		self.mode = tk.StringVar()
-		self.colo = tk.StringVar()			
+		self.colo = tk.StringVar()
 		self.aact = tk.StringVar()
 		self.esta = tk.StringVar()
 		self.dime = tk.StringVar()
 		self.obse = tk.StringVar()
-		
+
 		self.otro = tk.StringVar()
 		self.situ = tk.StringVar()
 		self.tipo = tk.StringVar()
@@ -56,93 +99,223 @@ class Window_detalles(tk.Toplevel):
 		self.ctac = tk.StringVar()
 		self.cint = tk.StringVar()
 
+	# -------------------------------------------------------------------------
+	# CONSTRUCCIÓN DE INTERFAZ
+	# -------------------------------------------------------------------------
 	def widgets(self):
+		self.frameU = tk.Frame(self, bg="#f8fafc")
+		self.frameU.pack(fill="both", expand=True, padx=14, pady=12)
 
+		# 1. Cabecera: Identificación principal del Bien
+		card_header = tk.Frame(self.frameU, bg="#ffffff", bd=1, relief="solid", padx=12, pady=10)
+		card_header.pack(fill="x", pady=(0, 10))
 
-				# Frame top
-		lblCod = ttk.Label(self.frameU, text="Código").grid(column=0, row=0, padx=3, pady=3, sticky="ew")
-		etrCod = ttk.Entry(self.frameU, textvariable= self.codi, state='readonly').grid(column=1, row=0, padx=3, pady=3, sticky="ew")
-		etrDen = ttk.Entry(self.frameU, textvariable= self.deno).grid(column=2, row=0, columnspan=4, padx=3, pady=3, sticky="ew")
+		tk.Label(
+			card_header,
+			text="📦  Código:",
+			bg="#ffffff",
+			fg="#475569",
+			font=("Segoe UI", 9, "bold")
+		).pack(side="left", padx=(0, 6))
 
-				# Labels
-		lblInve = ttk.Label(self.frameU, text="Inventario").grid(column=0, row=1, padx=3, pady=3, sticky="ew")
-		lblActA = ttk.Label(self.frameU, text="Inv. Anterior").grid(column=0, row=2, padx=3, pady=3, sticky="ew")
-		lblCtaC = ttk.Label(self.frameU, text='Cta. Cont.').grid(column=0, row=3, padx=3, pady=3, sticky='ew')
-		lblCodP = ttk.Label(self.frameU, text="Cód. Pat.").grid(column=0, row=4, padx=3, pady=3, sticky="ew")
-		lblCodI = ttk.Label(self.frameU, text="Cód. Int.").grid(column=0, row=5, padx=3, pady=3, sticky="ew")
-		lblFecA = ttk.Label(self.frameU, text="Fecha Adqui.").grid(column=0, row=6, padx=3, pady=3, sticky="ew")
-		lblDocA = ttk.Label(self.frameU, text="Doc. Adqui.").grid(column=0, row=7, padx=3, pady=3, sticky="ew")
+		etrCod = ttk.Entry(
+			card_header,
+			textvariable=self.codi,
+			state="readonly",
+			width=16,
+			font=("Segoe UI", 9, "bold"),
+			justify="center"
+		)
+		etrCod.pack(side="left", padx=(0, 12))
 
+		tk.Label(
+			card_header,
+			text="Denominación:",
+			bg="#ffffff",
+			fg="#475569",
+			font=("Segoe UI", 9, "bold")
+		).pack(side="left", padx=(0, 6))
 
-				# Entrys
-		etrInve = ttk.Entry(self.frameU, textvariable = self.inve, state='readonly').grid(column=1, row=1, columnspan=3, padx=3, pady=3, sticky="ew")
-		etrActA = ttk.Entry(self.frameU, textvariable = self.acta, state='readonly').grid(column=1, row=2, columnspan=3, padx=3, pady=3, sticky="ew")
-		etrCtaC = ttk.Entry(self.frameU, textvariable = self.ctac, state='readonly').grid(column=1, row=3, columnspan=3, padx=3, pady=3, sticky='ew')		
-		etrCodP = ttk.Entry(self.frameU, textvariable = self.codp, state='readonly').grid(column=1, row=4, padx=3, pady=3, sticky="ew")
-		etrCodI = ttk.Entry(self.frameU, textvariable = self.cint, state='readonly').grid(column=1, row=5, padx=3, pady=3, sticky="ew")
-		etrFecA = ttk.Entry(self.frameU, textvariable = self.fech, state='readonly').grid(column=1, row=6, padx=3, pady=3, sticky="ew")
-		etrDocA = ttk.Entry(self.frameU, textvariable = self.dadq, state='readonly').grid(column=1, row=7, padx=3, pady=3, sticky="ew")
+		etrDen = ttk.Entry(
+			card_header,
+			textvariable=self.deno,
+			font=("Segoe UI", 9, "bold")
+		)
+		etrDen.pack(side="left", fill="x", expand=True)
 
-		
-		lblValo = ttk.Label(self.frameU, text='Valor Adqui.').grid(column=2, row=4, padx=3, pady=3, sticky='ew')
-		lblOtro = ttk.Label(self.frameU, text="Otros").grid(column=2, row=5, padx=3, pady=3, sticky="ew")
-		lblSitu = ttk.Label(self.frameU, text="Situacion").grid(column=2, row=6, padx=3, pady=3, sticky="ew")
-		lblObse = ttk.Label(self.frameU, text="Obs").grid(column=2, row=7, padx=3, pady=3, sticky="ew")
-				# Entrys
+		# 2. Panel Central en 2 Columnas (Izquierda: Datos Patrimoniales y Complementarios | Derecha: Especificaciones Técnicas Obligatorias)
+		f_body = tk.Frame(self.frameU, bg="#f8fafc")
+		f_body.pack(fill="both", expand=True, pady=(0, 10))
 
-		etrValo = ttk.Entry(self.frameU, textvariable = self.valo, state='readonly', justify='right').grid(column=3, row=4, padx=3, pady=3, sticky='ew')
-		etrOtro = ttk.Entry(self.frameU, textvariable= self.otro).grid(column=3, row=5, padx=3, pady=3, sticky="ew")
-		etrSitu = ttk.Entry(self.frameU, textvariable= self.situ).grid(column=3, row=6, padx=3, pady=3, sticky="ew")
-		etrObse = ttk.Entry(self.frameU, textvariable= self.obse).grid(column=3, row=7, padx=3, pady=3, sticky="ew")
+		# --- Columna Izquierda: Datos Patrimoniales y Contables ---
+		f_left = tk.Frame(f_body, bg="#f8fafc")
+		f_left.pack(side="left", fill="both", expand=True, padx=(0, 6))
 
-		lblEsta = ttk.Label(self.frameU, text="Estado").grid(column=4, row=1, padx=3, pady=3, sticky="ew")
-		lblMarc = ttk.Label(self.frameU, text="Marca").grid(column=4, row=2, padx=3, pady=3, sticky="ew")
-		lblMode = ttk.Label(self.frameU, text="Modelo").grid(column=4, row=3, padx=3, pady=3, sticky="ew")
-		lblSeri = ttk.Label(self.frameU, text="Serie").grid(column=4, row=4, padx=3, pady=3, sticky="ew")
-		lblTipo = ttk.Label(self.frameU, text="Tipo").grid(column=4, row=5, padx=3, pady=3, sticky="ew")
-		lblColo = ttk.Label(self.frameU, text="Color").grid(column=4, row=6, padx=3, pady=3, sticky="ew")
-		lblDime = ttk.Label(self.frameU, text="Dimensión").grid(column=4, row=7, padx=3, pady=3, sticky="ew")
+		card_pat = ttk.LabelFrame(
+			f_left,
+			text=" 🏛️ Información Patrimonial y Contable ",
+			style="Detalles.TLabelframe",
+			padding=10
+		)
+		card_pat.pack(fill="x", pady=(0, 8))
 
-		etrEsta = tk.Entry(self.frameU, textvariable= self.esta, highlightbackground= "#e30613", highlightthickness=1)
-		etrEsta.grid(column=5, row=1, padx=3, pady=3, sticky="ew")
-		etrMarc = tk.Entry(self.frameU, textvariable= self.marc, highlightbackground= "#e30613", highlightthickness=1)
-		etrMarc.grid(column=5, row=2, padx=3, pady=3, sticky="ew")
-		etrMode = tk.Entry(self.frameU, textvariable= self.mode, highlightbackground= "#e30613", highlightthickness=1)
-		etrMode.grid(column=5, row=3,padx=3, pady=3, sticky="ew")		
-		etrSeri = tk.Entry(self.frameU, textvariable= self.seri, highlightbackground= "#e30613", highlightthickness=1)
-		etrSeri.grid(column=5, row=4, padx=3, pady=3, sticky="ew")
-		etrTipo = tk.Entry(self.frameU, textvariable= self.tipo, highlightbackground= "#e30613", highlightthickness=1)
-		etrTipo.grid(column=5, row=5, padx=3, pady=3, sticky="ew")
-		etrColo = tk.Entry(self.frameU, textvariable= self.colo, highlightbackground= "#e30613", highlightthickness=1)
-		etrColo.grid(column=5, row=6, padx=3, pady=3, sticky="ew")
-		etrDime = tk.Entry(self.frameU, textvariable= self.dime, highlightbackground= "#e30613", highlightthickness=1)
-		etrDime.grid(column=5, row=7, padx=3, pady=3, sticky="ew")
+		ttk.Label(card_pat, text="Ubicación Actual:").grid(row=0, column=0, padx=4, pady=3, sticky="w")
+		ttk.Entry(card_pat, textvariable=self.inve, state="readonly").grid(row=0, column=1, columnspan=3, padx=4, pady=3, sticky="ew")
 
-		
-		btnDeta = ttk.Button(self.frameU, text="Aceptar", command=lambda:self.actualizar_det()).grid(row=8, column=5, padx=3, pady=3, sticky="ew")
-		btnCanc = ttk.Button(self.frameU, text="Cancelar", command=lambda:self.cancelar_codigo()).grid(row=9, column=5, padx=3, pady=3, sticky="ew")
-		
-		lblNota = ttk.Label(self.frameU, text="Nota").grid(row=8, column=0, padx=3, pady=3, sticky="ew")
+		ttk.Label(card_pat, text="Ubicación Ant.:").grid(row=1, column=0, padx=4, pady=3, sticky="w")
+		ttk.Entry(card_pat, textvariable=self.acta, state="readonly").grid(row=1, column=1, columnspan=3, padx=4, pady=3, sticky="ew")
 
-		self.txtNota = tk.Text(self.frameU, height=3)
-		self.txtNota.configure(font=('Arial', 9), bg='white', relief='solid')
-		self.txtNota.grid(row=8, column=1, columnspan=4, rowspan=2, padx=3, pady=3, sticky='nsew')
+		ttk.Label(card_pat, text="Cuenta Contable:").grid(row=2, column=0, padx=4, pady=3, sticky="w")
+		ttk.Entry(card_pat, textvariable=self.ctac, state="readonly").grid(row=2, column=1, columnspan=3, padx=4, pady=3, sticky="ew")
 
+		ttk.Label(card_pat, text="Cód. Patrimonial:").grid(row=3, column=0, padx=4, pady=3, sticky="w")
+		ttk.Entry(card_pat, textvariable=self.codp, state="readonly", width=16).grid(row=3, column=1, padx=4, pady=3, sticky="ew")
+
+		ttk.Label(card_pat, text="Cód. Interno:").grid(row=3, column=2, padx=(8, 4), pady=3, sticky="w")
+		ttk.Entry(card_pat, textvariable=self.cint, state="readonly", width=14).grid(row=3, column=3, padx=4, pady=3, sticky="ew")
+
+		ttk.Label(card_pat, text="Fecha Adquisición:").grid(row=4, column=0, padx=4, pady=3, sticky="w")
+		ttk.Entry(card_pat, textvariable=self.fech, state="readonly", width=16).grid(row=4, column=1, padx=4, pady=3, sticky="ew")
+
+		ttk.Label(card_pat, text="Valor Adqui. (S/):").grid(row=4, column=2, padx=(8, 4), pady=3, sticky="w")
+		ttk.Entry(card_pat, textvariable=self.valo, state="readonly", justify="right", width=14).grid(row=4, column=3, padx=4, pady=3, sticky="ew")
+
+		ttk.Label(card_pat, text="Doc. Adquisición:").grid(row=5, column=0, padx=4, pady=3, sticky="w")
+		ttk.Entry(card_pat, textvariable=self.dadq, state="readonly").grid(row=5, column=1, columnspan=3, padx=4, pady=3, sticky="ew")
+
+		card_pat.columnconfigure(1, weight=1)
+		card_pat.columnconfigure(3, weight=1)
+
+		# --- Sub-card Izquierda Inferior: Datos Complementarios y Nota ---
+		card_comp = ttk.LabelFrame(
+			f_left,
+			text=" 📝 Datos Complementarios y Notas ",
+			style="Detalles.TLabelframe",
+			padding=10
+		)
+		card_comp.pack(fill="both", expand=True)
+
+		ttk.Label(card_comp, text="Situación:").grid(row=0, column=0, padx=4, pady=3, sticky="w")
+		ttk.Entry(card_comp, textvariable=self.situ, width=16).grid(row=0, column=1, padx=4, pady=3, sticky="ew")
+
+		ttk.Label(card_comp, text="Otros:").grid(row=0, column=2, padx=(8, 4), pady=3, sticky="w")
+		ttk.Entry(card_comp, textvariable=self.otro, width=16).grid(row=0, column=3, padx=4, pady=3, sticky="ew")
+
+		ttk.Label(card_comp, text="Observaciones:").grid(row=1, column=0, padx=4, pady=3, sticky="w")
+		ttk.Entry(card_comp, textvariable=self.obse).grid(row=1, column=1, columnspan=3, padx=4, pady=3, sticky="ew")
+
+		ttk.Label(card_comp, text="Nota:").grid(row=2, column=0, padx=4, pady=3, sticky="nw")
+		self.txtNota = tk.Text(
+			card_comp,
+			height=3,
+			font=("Segoe UI", 9),
+			bg="#ffffff",
+			fg="#0f172a",
+			relief="solid",
+			bd=1
+		)
+		self.txtNota.grid(row=2, column=1, columnspan=3, padx=4, pady=3, sticky="nsew")
+
+		card_comp.columnconfigure(1, weight=1)
+		card_comp.columnconfigure(3, weight=1)
+		card_comp.rowconfigure(2, weight=1)
+
+		# --- Columna Derecha: Especificaciones Físicas Obligatorias ---
+		card_fis = ttk.LabelFrame(
+			f_body,
+			text=" 🔧 Especificaciones Físicas (* Obligatorios) ",
+			style="Detalles.TLabelframe",
+			padding=12
+		)
+		card_fis.pack(side="right", fill="both", padx=(6, 0))
+
+		campos_obligatorios = [
+			("Estado *",    self.esta),
+			("Marca *",     self.marc),
+			("Modelo *",    self.mode),
+			("Serie *",     self.seri),
+			("Tipo *",      self.tipo),
+			("Color *",     self.colo),
+			("Dimensión *", self.dime),
+		]
+
+		self._entries_obligatorios = []
+		for idx, (lbl_txt, var) in enumerate(campos_obligatorios):
+			tk.Label(
+				card_fis,
+				text=lbl_txt,
+				bg="#ffffff",
+				fg="#1e293b",
+				font=("Segoe UI", 9, "bold")
+			).grid(row=idx, column=0, padx=(2, 10), pady=6, sticky="w")
+
+			etr = tk.Entry(
+				card_fis,
+				textvariable=var,
+				width=24,
+				font=("Segoe UI", 9),
+				bg="#f8fafc",
+				fg="#0f172a",
+				relief="solid",
+				bd=1,
+				highlightbackground="#93c5fd",
+				highlightcolor="#2563eb",
+				highlightthickness=1
+			)
+			etr.grid(row=idx, column=1, padx=2, pady=6, sticky="ew")
+			etr.bind("<Return>", lambda _e: self.actualizar_det())
+			self._entries_obligatorios.append(etr)
+
+		tk.Label(
+			card_fis,
+			text="* Todos estos campos son requeridos\npara validar el registro del bien.",
+			bg="#ffffff",
+			fg="#64748b",
+			font=("Segoe UI", 8, "italic"),
+			justify="left"
+		).grid(row=len(campos_obligatorios), column=0, columnspan=2, sticky="w", padx=2, pady=(10, 0))
+
+		card_fis.columnconfigure(1, weight=1)
+
+		# 3. Barra de Acciones Inferior
+		frame_actions = tk.Frame(self.frameU, bg="#f8fafc")
+		frame_actions.pack(fill="x")
+
+		tk.Label(
+			frame_actions,
+			text="💡 Presione Enter para guardar o Esc para cancelar",
+			bg="#f8fafc",
+			fg="#64748b",
+			font=("Segoe UI", 8, "italic")
+		).pack(side="left")
+
+		btnCanc = ttk.Button(frame_actions, text="✖ Cancelar", width=14, command=self.cancelar_codigo)
+		btnCanc.pack(side="right", padx=(6, 0))
+
+		btnDeta = ttk.Button(frame_actions, text="💾 Aceptar y Guardar", width=20, command=self.actualizar_det)
+		btnDeta.pack(side="right")
+
+		self.bind("<Escape>", lambda _e: self.cancelar_codigo())
+
+	# -------------------------------------------------------------------------
+	# LÓGICA DE DATOS Y ACTUALIZACIÓN
+	# -------------------------------------------------------------------------
 	def cancelar_codigo(self):
 		self.accion = 1
 		self.destroy()
-	
+
 	def buscar_cod(self, *args):
 		r = buscar_bien_d(1, self.codigo)
-		self.codi.set(self.codigo)
+		self.codi.set(self.codigo or "")
 		try:
-			datos = ['deno', 'inve', 'acta', 'marc', 'seri', 'mode', 'fech', 'dadq', 'colo', 'esta', 
-					'dime', 'obse', 'otro', 'situ', 'codp', 'txtNota', 'tipo', 'valo', 'ctac', 'cint']
+			datos = [
+				'deno', 'inve', 'acta', 'marc', 'seri', 'mode', 'fech', 'dadq', 'colo', 'esta',
+				'dime', 'obse', 'otro', 'situ', 'codp', 'txtNota', 'tipo', 'valo', 'ctac', 'cint'
+			]
 			for i, dato in enumerate(datos):
 				valor_original = r[0][i]
 				valor = str(valor_original) if valor_original is not None else ''
 				if dato == 'valo':
-					# Los bienes antiguos pueden tener valor de adquisición NULL.
 					valor = '{:,.2f}'.format(float(valor_original or 0))
 					getattr(self, dato).set(valor)
 				elif dato == 'txtNota':
@@ -151,35 +324,43 @@ class Window_detalles(tk.Toplevel):
 				else:
 					getattr(self, dato).set(valor)
 		except Exception as e:
-			mb.showinfo(message=f"El codigo no existe, Error: {str(e)} ", title="¡Atencion!")
+			mb.showinfo(message=f"El código no existe. Detalle: {str(e)}", title="¡Atención!", parent=self)
 			print(str(e))
 
 	def actualizar_det(self):
+		self.data = [
+			self.marc.get().strip(), self.mode.get().strip(), self.colo.get().strip(), self.seri.get().strip(),
+			self.esta.get().strip(), self.dime.get().strip(), self.obse.get().strip(), self.otro.get().strip(),
+			self.situ.get().strip(), self.fech.get().strip(), self.dadq.get().strip(),
+			self.txtNota.get("1.0", "end-1c").strip(), self.tipo.get().strip()
+		]
 
-		self.data = [self.marc.get(), self.mode.get(), self.colo.get(), self.seri.get(),
-				self.esta.get(), self.dime.get(), self.obse.get(), self.otro.get(), 
-				self.situ.get(), self.fech.get(), self.dadq.get(), self.txtNota.get("1.0", "end-1c"),
-				self.tipo.get()]
+		self.data_c = [
+			self.marc.get().strip(), self.mode.get().strip(), self.colo.get().strip(), self.seri.get().strip(),
+			self.esta.get().strip(), self.dime.get().strip(), self.tipo.get().strip()
+		]
 
-		self.data_c = [self.marc.get(), self.mode.get(), self.colo.get(), self.seri.get(),
-					self.esta.get(), self.dime.get(), self.tipo.get()]
-	
-		if self.marc.get()=="" or self.mode.get()=="" or self.colo.get()=="" or self.seri.get()=="" or self.esta.get()=="" or self.dime.get()=="" or self.tipo.get()=="":
-			mb.showinfo(message="Los campos Marca, Modelo, Color, Tipo, Serie, Estado y Dimensiones son obligatorios", title="¡Atención!")
-		else:
-			try:
-				self.validar_datos()				
-				actualizar_detalles(self.codi.get(), self.data)
-				self.buscar_cod()
-				mb.showinfo(message="Se actualizo correctamente", title="Acontar S.A.C.")
-				self.destroy()
-			except Exception as e:
-				mb.showerror(message=f"Error al actualizar, Error {str(e)}", title="Error")
+		if any(val == "" for val in self.data_c):
+			mb.showwarning(
+				message="Los campos Marca, Modelo, Color, Tipo, Serie, Estado y Dimensión son obligatorios.",
+				title="¡Atención!",
+				parent=self
+			)
+			return
+
+		try:
+			self.validar_datos()
+			actualizar_detalles(self.codi.get(), self.data)
+			self.buscar_cod()
+			mb.showinfo(message="Se actualizó correctamente.", title="Acontar S.A.C.", parent=self)
+			self.destroy()
+		except Exception as e:
+			mb.showerror(message=f"Error al actualizar: {str(e)}", title="Error", parent=self)
 
 	def actualizar_cod(self):
-		j = self.codi.get()
+		j = self.codi.get().strip()
 		if j == "":
-			mb.showinfo(message="Ingrese un número de acta", title="¡Atencion!")
+			mb.showinfo(message="Ingrese un número de acta.", title="¡Atención!", parent=self)
 		else:
 			try:
 				Acta = self.aact.get()
@@ -190,9 +371,9 @@ class Window_detalles(tk.Toplevel):
 				actualizar_registro(self.codi.get(), data)
 				self.buscar()
 				self.buscar_cod()
-				mb.showinfo(message="Se actualizo correctamente", title="Actualización")
-			except:
-				mb.showerror(message="Ocurrio un Error", title="Error")
+				mb.showinfo(message="Se actualizó correctamente.", title="Actualización", parent=self)
+			except Exception:
+				mb.showerror(message="Ocurrió un error al actualizar el registro.", title="Error", parent=self)
 
 	def validar_datos(self):
 		r = buscar_bien_d(2, self.codigo)
@@ -201,9 +382,8 @@ class Window_detalles(tk.Toplevel):
 			print("Si coinciden")
 		else:
 			insertar = cambio_detalles(self.codigo)
-			# print(insertar)
 			try:
 				insertar_tabla2(insertar)
 			except Exception as e:
-				print(f"Este es el error se duplican {str(e)}")	
+				print(f"Este es el error se duplican {str(e)}")
 			print("No coinciden")

@@ -28,9 +28,8 @@ class Window_print(tk.Toplevel):
 		super().__init__(root)
 		self.root = root
 		self.valor = valor or 1
-		self.title("Impresión de Etiquetas - Gestión en Lote y por Oficina")
-		self.iconbitmap('./img/favicon.ico')
-		self.geometry("1060x720")
+		self.title("Impresión de Etiquetas — Gestión en Lote y por Oficina")
+		self.geometry("1100x740")
 		self.minsize(980, 640)
 		self.config_path = 'config.ini'
 		self.config = configparser.ConfigParser()
@@ -38,13 +37,17 @@ class Window_print(tk.Toplevel):
 		self.grab_set()
 		self.focus_set()
 
-		self.nbk = ttk.Notebook(self)
-		self.tab_lote = ttk.Frame(self.nbk)
-		self.tab_ajustes = tk.Frame(self.nbk)
+		self._cargar_icono()
+		self._configurar_estilos()
+		self._centrar_ventana(1100, 740)
 
-		self.nbk.add(self.tab_lote, text="Impresión en Lote / Por Oficina")
-		self.nbk.add(self.tab_ajustes, text="Ajustes")
-		self.nbk.pack(fill="both", expand=True)
+		self.nbk = ttk.Notebook(self, style="Print.TNotebook")
+		self.tab_lote   = tk.Frame(self.nbk, bg="#f8fafc")
+		self.tab_ajustes = tk.Frame(self.nbk, bg="#f8fafc")
+
+		self.nbk.add(self.tab_lote,    text="  🖨️  Impresión en Lote / Por Oficina  ")
+		self.nbk.add(self.tab_ajustes, text="  ⚙️  Ajustes  ")
+		self.nbk.pack(fill="both", expand=True, padx=0, pady=0)
 
 		self.tab_lote_init()
 		self.tab_ajustes_init()
@@ -54,6 +57,75 @@ class Window_print(tk.Toplevel):
 		# Si se abrió explícitamente para sobrantes (valor == 2), abrir popup de sobrante
 		if self.valor == 2:
 			self.after(150, lambda: self.abrir_popup_individual(valor=2))
+
+	# -------------------------------------------------------------------------
+	# HELPERS DE ESTILO E ICONO
+	# -------------------------------------------------------------------------
+	def _cargar_icono(self):
+		try:
+			from utils.helpers import resource_path
+			self.iconbitmap(resource_path("img/favicon.ico"))
+		except Exception:
+			pass
+
+	def _centrar_ventana(self, w, h):
+		self.update_idletasks()
+		sw = self.winfo_screenwidth()
+		sh = self.winfo_screenheight()
+		x = (sw - w) // 2
+		y = (sh - h) // 2
+		self.geometry(f"{w}x{h}+{x}+{y}")
+
+	def _configurar_estilos(self):
+		style = ttk.Style(self)
+
+		# Notebook moderno
+		style.configure("Print.TNotebook",
+			background="#f1f5f9",
+			tabmargins=[0, 0, 0, 0]
+		)
+		style.configure("Print.TNotebook.Tab",
+			font=("Segoe UI", 9, "bold"),
+			padding=[14, 6],
+			background="#e2e8f0",
+			foreground="#475569"
+		)
+		style.map("Print.TNotebook.Tab",
+			background=[("selected", "#ffffff")],
+			foreground=[("selected", "#1e293b")]
+		)
+
+		# LabelFrame card
+		style.configure("Print.TLabelframe",
+			background="#ffffff",
+			relief="solid",
+			borderwidth=1,
+			bordercolor="#e2e8f0"
+		)
+		style.configure("Print.TLabelframe.Label",
+			background="#ffffff",
+			foreground="#475569",
+			font=("Segoe UI", 8, "bold")
+		)
+
+		# Treeview moderno
+		style.configure("Print.Treeview",
+			background="#ffffff",
+			fieldbackground="#ffffff",
+			foreground="#0f172a",
+			font=("Segoe UI", 9),
+			rowheight=24
+		)
+		style.configure("Print.Treeview.Heading",
+			background="#f1f5f9",
+			foreground="#475569",
+			font=("Segoe UI", 8, "bold"),
+			relief="flat"
+		)
+		style.map("Print.Treeview",
+			background=[("selected", "#2563eb")],
+			foreground=[("selected", "#ffffff")]
+		)
 
 	# -------------------------------------------------------------------------
 	# PESTAÑA PRINCIPAL: IMPRESIÓN EN LOTE / POR OFICINA
@@ -80,12 +152,12 @@ class Window_print(tk.Toplevel):
 		self._bien_pendiente_agregar = None
 		self._codigo_previsualizado = None
 
-		container = ttk.Frame(self.tab_lote, padding=8)
-		container.pack(fill="both", expand=True)
+		container = tk.Frame(self.tab_lote, bg="#f8fafc")
+		container.pack(fill="both", expand=True, padx=10, pady=10)
 
 		# 1. Panel Superior: Filtros, Selección y Acciones de Entrada
-		frame_filtros = ttk.LabelFrame(container, text=" Selección de Oficina, Filtros y Entrada de Bienes ", padding=8)
-		frame_filtros.pack(fill="x", padx=4, pady=(0, 6))
+		frame_filtros = ttk.LabelFrame(container, text=" 🔎 Selección de Oficina, Filtros y Entrada de Bienes ", style="Print.TLabelframe", padding=8)
+		frame_filtros.pack(fill="x", pady=(0, 8))
 
 		# Fila 0: Búsqueda por Código, Combobox Predictivo, Filtro de Estado y Botón Cargar
 		lblCodOfi = ttk.Label(frame_filtros, text="Cód. Oficina:")
@@ -159,44 +231,44 @@ class Window_print(tk.Toplevel):
 		frame_filtros.columnconfigure(3, weight=2)
 		frame_filtros.columnconfigure(5, weight=1)
 
-		# 2. Panel de Previsualización y Detalle del Bien Seleccionado (ENCIMA DE LA LISTA)
-		frame_preview_panel = ttk.LabelFrame(container, text=" Detalle y Vista Previa del Bien Seleccionado ", padding=6)
-		frame_preview_panel.pack(fill="x", padx=4, pady=(0, 6))
+		# 2. Panel de Previsualización y Detalle del Bien Seleccionado
+		frame_preview_panel = ttk.LabelFrame(container, text=" 📋 Detalle y Vista Previa del Bien Seleccionado ", style="Print.TLabelframe", padding=8)
+		frame_preview_panel.pack(fill="x", pady=(0, 8))
 
 		# Lado Izquierdo: Campos donde se previsualizan los datos del bien
-		frame_datos_bien = ttk.Frame(frame_preview_panel)
+		frame_datos_bien = tk.Frame(frame_preview_panel, bg="#ffffff")
 		frame_datos_bien.pack(side="left", fill="both", expand=True, padx=(2, 8))
 
 		# Fila 0: Denominación (ancho completo)
-		ttk.Label(frame_datos_bien, text="Denominación:").grid(row=0, column=0, padx=4, pady=2, sticky="w")
+		ttk.Label(frame_datos_bien, text="Denominación:").grid(row=0, column=0, padx=4, pady=3, sticky="w")
 		self.etr_prev_deno = ttk.Entry(frame_datos_bien, textvariable=self.prev_deno, state="readonly", font=("Segoe UI", 9, "bold"))
-		self.etr_prev_deno.grid(row=0, column=1, columnspan=5, padx=4, pady=2, sticky="ew")
+		self.etr_prev_deno.grid(row=0, column=1, columnspan=5, padx=4, pady=3, sticky="ew")
 
 		# Fila 1: Códigos y Acta/Ficha
-		ttk.Label(frame_datos_bien, text="Cód. Patrimonial:").grid(row=1, column=0, padx=4, pady=2, sticky="w")
-		ttk.Entry(frame_datos_bien, textvariable=self.prev_codpat, state="readonly", width=16).grid(row=1, column=1, padx=4, pady=2, sticky="ew")
+		ttk.Label(frame_datos_bien, text="Cód. Patrimonial:").grid(row=1, column=0, padx=4, pady=3, sticky="w")
+		ttk.Entry(frame_datos_bien, textvariable=self.prev_codpat, state="readonly", width=16).grid(row=1, column=1, padx=4, pady=3, sticky="ew")
 
-		ttk.Label(frame_datos_bien, text="Cód. Interno:").grid(row=1, column=2, padx=(8, 4), pady=2, sticky="w")
-		ttk.Entry(frame_datos_bien, textvariable=self.prev_codint, state="readonly", width=14).grid(row=1, column=3, padx=4, pady=2, sticky="ew")
+		ttk.Label(frame_datos_bien, text="Cód. Interno:").grid(row=1, column=2, padx=(8, 4), pady=3, sticky="w")
+		ttk.Entry(frame_datos_bien, textvariable=self.prev_codint, state="readonly", width=14).grid(row=1, column=3, padx=4, pady=3, sticky="ew")
 
-		ttk.Label(frame_datos_bien, text="Ficha / Acta:").grid(row=1, column=4, padx=(8, 4), pady=2, sticky="w")
-		ttk.Entry(frame_datos_bien, textvariable=self.prev_actaant, state="readonly", width=14).grid(row=1, column=5, padx=4, pady=2, sticky="ew")
+		ttk.Label(frame_datos_bien, text="Ficha / Acta:").grid(row=1, column=4, padx=(8, 4), pady=3, sticky="w")
+		ttk.Entry(frame_datos_bien, textvariable=self.prev_actaant, state="readonly", width=14).grid(row=1, column=5, padx=4, pady=3, sticky="ew")
 
 		# Fila 2: Ubicación/Inv, Estado y Oficina Etiqueta
-		ttk.Label(frame_datos_bien, text="Ubicación / Inv.:").grid(row=2, column=0, padx=4, pady=2, sticky="w")
-		ttk.Entry(frame_datos_bien, textvariable=self.prev_ubic, state="readonly", width=16).grid(row=2, column=1, padx=4, pady=2, sticky="ew")
+		ttk.Label(frame_datos_bien, text="Ubicación / Inv.:").grid(row=2, column=0, padx=4, pady=3, sticky="w")
+		ttk.Entry(frame_datos_bien, textvariable=self.prev_ubic, state="readonly", width=16).grid(row=2, column=1, padx=4, pady=3, sticky="ew")
 
-		ttk.Label(frame_datos_bien, text="Estado Inv.:").grid(row=2, column=2, padx=(8, 4), pady=2, sticky="w")
-		ttk.Entry(frame_datos_bien, textvariable=self.prev_estado, state="readonly", width=14).grid(row=2, column=3, padx=4, pady=2, sticky="ew")
+		ttk.Label(frame_datos_bien, text="Estado Inv.:").grid(row=2, column=2, padx=(8, 4), pady=3, sticky="w")
+		ttk.Entry(frame_datos_bien, textvariable=self.prev_estado, state="readonly", width=14).grid(row=2, column=3, padx=4, pady=3, sticky="ew")
 
-		ttk.Label(frame_datos_bien, text="Oficina Etiqueta:").grid(row=2, column=4, padx=(8, 4), pady=2, sticky="w")
+		ttk.Label(frame_datos_bien, text="Oficina Etiqueta:").grid(row=2, column=4, padx=(8, 4), pady=3, sticky="w")
 		self.etr_prev_ofic = ttk.Entry(frame_datos_bien, textvariable=self.prev_ofic_etiqueta, width=14)
-		self.etr_prev_ofic.grid(row=2, column=5, padx=4, pady=2, sticky="ew")
+		self.etr_prev_ofic.grid(row=2, column=5, padx=4, pady=3, sticky="ew")
 		self.etr_prev_ofic.bind("<Return>", lambda _e: self._actualizar_oficina_bien_seleccionado())
 
 		# Fila 3: Botones de Acción sobre el bien seleccionado
-		f_sub_acciones = ttk.Frame(frame_datos_bien)
-		f_sub_acciones.grid(row=3, column=0, columnspan=6, pady=(6, 2), sticky="ew")
+		f_sub_acciones = tk.Frame(frame_datos_bien, bg="#ffffff")
+		f_sub_acciones.grid(row=3, column=0, columnspan=6, pady=(8, 2), sticky="ew")
 
 		btnImpUno = ttk.Button(f_sub_acciones, text="🖨️ Imprimir Esta Etiqueta", command=self.imprimir_seleccionado_lote)
 		btnImpUno.pack(side="left", padx=(0, 6))
@@ -208,7 +280,7 @@ class Window_print(tk.Toplevel):
 			f_sub_acciones, 
 			text="Seleccione un bien de la lista para ver su información y etiqueta", 
 			font=("Segoe UI", 8, "italic"), 
-			foreground="#555555"
+			foreground="#64748b"
 		)
 		self.lbl_prev_info.pack(side="left", padx=8)
 
@@ -217,45 +289,55 @@ class Window_print(tk.Toplevel):
 		frame_datos_bien.columnconfigure(5, weight=2)
 
 		# Lado Derecho: Previsualización gráfica de la etiqueta (50mm x 25mm)
-		frame_etiqueta_lateral = ttk.Frame(frame_preview_panel)
+		frame_etiqueta_lateral = tk.Frame(frame_preview_panel, bg="#ffffff")
 		frame_etiqueta_lateral.pack(side="right", fill="y", padx=(4, 2))
 
-		frame_img_box = tk.Frame(frame_etiqueta_lateral, bg="#ffffff", bd=2, relief="groove", width=320, height=155)
+		frame_img_box = tk.Frame(frame_etiqueta_lateral, bg="#f1f5f9", bd=1, relief="solid", width=320, height=155)
 		frame_img_box.pack_propagate(False)
 		frame_img_box.pack(side="top", pady=2)
 
 		self.lbl_lote_preview = tk.Label(
 			frame_img_box, 
 			text="Vista previa de la etiqueta\n\n(50mm x 25mm)", 
-			bg="#ffffff", 
-			fg="#777777",
+			bg="#f1f5f9", 
+			fg="#94a3b8",
 			font=("Segoe UI", 9)
 		)
 		self.lbl_lote_preview.pack(fill="both", expand=True)
 
-		# 3. Panel Inferior: Tabla de Etiquetas (Ocupa todo el ancho abajo)
-		frame_tabla = ttk.LabelFrame(container, text=" Lista de Etiquetas a Generar ", padding=6)
-		frame_tabla.pack(fill="both", expand=True, padx=4, pady=(0, 4))
+		btnAjustarDiseno = ttk.Button(
+			frame_etiqueta_lateral,
+			text="📐 Diseñar / Ajustar Etiqueta...",
+			command=self.abrir_disenador_etiqueta
+		)
+		btnAjustarDiseno.pack(side="top", fill="x", pady=(4, 0))
+
+		# 3. Panel Inferior: Tabla de Etiquetas
+		frame_tabla = ttk.LabelFrame(container, text=" 📋 Lista de Etiquetas a Generar ", style="Print.TLabelframe", padding=6)
+		frame_tabla.pack(fill="both", expand=True, pady=(0, 4))
 
 		columnas = ("num", "codpat", "codint", "deno", "acta_ant", "estado", "oficina")
-		self.tree_lote = ttk.Treeview(frame_tabla, columns=columnas, show="headings", selectmode="extended")
-		self.tree_lote.heading("num", text="#")
-		self.tree_lote.heading("codpat", text="Cód. Patrimonial")
-		self.tree_lote.heading("codint", text="Cód. Interno")
-		self.tree_lote.heading("deno", text="Denominación")
+		self.tree_lote = ttk.Treeview(frame_tabla, columns=columnas, show="headings", selectmode="extended", style="Print.Treeview")
+		self.tree_lote.heading("num",      text="#")
+		self.tree_lote.heading("codpat",   text="Cód. Patrimonial")
+		self.tree_lote.heading("codint",   text="Cód. Interno")
+		self.tree_lote.heading("deno",     text="Denominación")
 		self.tree_lote.heading("acta_ant", text="Ficha / Acta")
-		self.tree_lote.heading("estado", text="Estado Inv.")
-		self.tree_lote.heading("oficina", text="Oficina Etiqueta")
+		self.tree_lote.heading("estado",   text="Estado Inv.")
+		self.tree_lote.heading("oficina",  text="Oficina Etiqueta")
 
-		self.tree_lote.column("num", width=35, anchor="center")
-		self.tree_lote.column("codpat", width=120, anchor="w")
-		self.tree_lote.column("codint", width=90, anchor="w")
-		self.tree_lote.column("deno", width=270, anchor="w")
-		self.tree_lote.column("acta_ant", width=85, anchor="center")
-		self.tree_lote.column("estado", width=95, anchor="center")
-		self.tree_lote.column("oficina", width=180, anchor="w")
+		self.tree_lote.column("num",      width=35,  anchor="center")
+		self.tree_lote.column("codpat",   width=120, anchor="w")
+		self.tree_lote.column("codint",   width=90,  anchor="w")
+		self.tree_lote.column("deno",     width=270, anchor="w")
+		self.tree_lote.column("acta_ant", width=85,  anchor="center")
+		self.tree_lote.column("estado",   width=95,  anchor="center")
+		self.tree_lote.column("oficina",  width=180, anchor="w")
 
-		scroll_y = ttk.Scrollbar(frame_tabla, orient="vertical", command=self.tree_lote.yview)
+		self.tree_lote.tag_configure("odd",  background="#ffffff")
+		self.tree_lote.tag_configure("even", background="#f8fafc")
+
+		scroll_y = ttk.Scrollbar(frame_tabla, orient="vertical",   command=self.tree_lote.yview)
 		scroll_x = ttk.Scrollbar(frame_tabla, orient="horizontal", command=self.tree_lote.xview)
 		self.tree_lote.configure(yscrollcommand=scroll_y.set, xscrollcommand=scroll_x.set)
 
@@ -268,18 +350,28 @@ class Window_print(tk.Toplevel):
 		self.tree_lote.bind("<<TreeviewSelect>>", self._on_tree_lote_select)
 		self.tree_lote.bind("<Double-Button-1>", lambda _e: self.previsualizar_seleccionado_lote())
 
-		# 3. Panel Inferior: Estadísticas y Botones de Acción
-		frame_inferior = ttk.Frame(container, padding=4)
-		frame_inferior.pack(fill="x", padx=4, pady=(6, 0))
+		# Panel Inferior: Estadísticas y Botones de Acción
+		frame_inferior = tk.Frame(container, bg="#f8fafc")
+		frame_inferior.pack(fill="x", pady=(8, 0))
 
-		self.lbl_total_lote = ttk.Label(frame_inferior, text="Total en lista: 0 etiquetas", font=("Segoe UI", 10, "bold"))
-		self.lbl_total_lote.pack(side="left", padx=5)
+		# Chip contador
+		frame_chip = tk.Frame(frame_inferior, bg="#eff6ff", bd=1, relief="solid")
+		frame_chip.pack(side="left", padx=(0, 10), pady=2)
+		self.lbl_total_lote = tk.Label(
+			frame_chip,
+			text="📋  0 etiquetas en lista",
+			bg="#eff6ff",
+			fg="#1d4ed8",
+			font=("Segoe UI", 9, "bold"),
+			padx=10, pady=4
+		)
+		self.lbl_total_lote.pack()
 
 		btnQuitar = ttk.Button(frame_inferior, text="🗑️ Quitar Seleccionado(s)", command=self.quitar_seleccionados_lote)
-		btnQuitar.pack(side="left", padx=8)
+		btnQuitar.pack(side="left", padx=6)
 
 		btnNueva = ttk.Button(frame_inferior, text="✨ Limpiar / Nueva Lista", command=self.nueva_lista_lote)
-		btnNueva.pack(side="left", padx=5)
+		btnNueva.pack(side="left", padx=4)
 
 		btnImpLote = ttk.Button(frame_inferior, text="🖨️ Imprimir Lote Completo", command=self.imprimir_lote)
 		btnImpLote.pack(side="right", padx=5)
@@ -379,7 +471,7 @@ class Window_print(tk.Toplevel):
 	def cargar_bienes_lote(self):
 		acta = self._resolver_acta_actual()
 		if not acta:
-			mb.showerror(title="Atención", message="Ingrese un código de oficina válido o seleccione una oficina de la lista.")
+			mb.showerror(title="Atención", message="Ingrese un código de oficina válido o seleccione una oficina de la lista.", parent=self)
 			return
 
 		filtro_txt = self.lote_filtro_sel.get()
@@ -394,7 +486,7 @@ class Window_print(tk.Toplevel):
 
 		bienes = filtrar_bienes_oficina(acta, filtro)
 		if not bienes:
-			mb.showinfo(title="Resultado", message=f"No se encontraron bienes con el filtro '{filtro_txt}' para la oficina [{acta}].")
+			mb.showinfo(title="Resultado", message=f"No se encontraron bienes con el filtro '{filtro_txt}' para la oficina [{acta}].", parent=self)
 			self.nueva_lista_lote()
 			return
 
@@ -416,9 +508,11 @@ class Window_print(tk.Toplevel):
 			self.tree_lote.delete(item)
 
 		for i, b in enumerate(self.lote_items, 1):
+			tag = "odd" if i % 2 == 1 else "even"
 			self.tree_lote.insert(
 				"",
 				tk.END,
+				tags=(tag,),
 				values=(
 					i,
 					b.get("codpat", "") or b.get("CodPat", ""),
@@ -429,7 +523,8 @@ class Window_print(tk.Toplevel):
 					b.get("oficina_etiqueta", "")
 				)
 			)
-		self.lbl_total_lote.config(text=f"Total en lista: {len(self.lote_items)} etiquetas")
+		n = len(self.lote_items)
+		self.lbl_total_lote.config(text=f"📋  {n} {'etiqueta' if n == 1 else 'etiquetas'} en lista")
 
 	def on_enter_codigo_lote(self, _event=None):
 		"""
@@ -439,7 +534,7 @@ class Window_print(tk.Toplevel):
 		"""
 		codigo = self.lote_codigo_agregar.get().strip()
 		if not codigo:
-			mb.showwarning(title="Atención", message="Ingrese un código patrimonial o interno.")
+			mb.showwarning(title="Atención", message="Ingrese un código patrimonial o interno.", parent=self)
 			return
 
 		# Si este mismo código ya fue previsualizado en el primer ENTER, el 2do ENTER lo agrega e imprime
@@ -458,7 +553,7 @@ class Window_print(tk.Toplevel):
 		"""Primer Enter: busca y previsualiza el bien ingresado sin agregarlo aún a la lista."""
 		bien = buscar_bien_por_codigo(codigo)
 		if not bien:
-			mb.showerror(title="No encontrado", message=f"No se encontró ningún bien con el código '{codigo}'.")
+			mb.showerror(title="No encontrado", message=f"No se encontró ningún bien con el código '{codigo}'.", parent=self)
 			self._bien_pendiente_agregar = None
 			self._codigo_previsualizado = None
 			return False
@@ -472,14 +567,14 @@ class Window_print(tk.Toplevel):
 		self._codigo_previsualizado = codigo
 
 		# Llenar los campos de datos del bien en el panel superior
-		codpat = bien.get("codpat", "") or bien.get("CodPat", "")
-		codint = bien.get("codint", "") or bien.get("CodInt", "")
-		deno = bien.get("deno", "") or bien.get("DenBien", "")
+		codpat   = bien.get("codpat", "")   or bien.get("CodPat", "")
+		codint   = bien.get("codint", "")   or bien.get("CodInt", "")
+		deno     = bien.get("deno", "")     or bien.get("DenBien", "")
 		acta_ant = bien.get("acta_ant", "") or bien.get("ActaAnt", "")
-		inv_val = bien.get("inv", "") or bien.get("Inv", "")
-		ofi_act = bien.get("oficina_actual", "")
-		ofi_ant = bien.get("oficina_anterior", "")
-		estado = bien.get("estado_filtro", "") or bien.get("estado_bien", "") or ""
+		inv_val  = bien.get("inv", "")      or bien.get("Inv", "")
+		ofi_act  = bien.get("oficina_actual", "")
+		ofi_ant  = bien.get("oficina_anterior", "")
+		estado   = bien.get("estado_filtro", "") or bien.get("estado_bien", "") or ""
 		ofic_etiq = bien.get("oficina_etiqueta", "")
 
 		self.prev_codpat.set(codpat)
@@ -495,7 +590,7 @@ class Window_print(tk.Toplevel):
 		if hasattr(self, 'lbl_prev_info'):
 			self.lbl_prev_info.config(
 				text=f"👁️ Previsualizado: [{codpat or codint}] {deno[:28]} ➔ Presione ENTER de nuevo para AGREGAR{imp_aviso}",
-				foreground="#d9534f"
+				foreground="#d97706"
 			)
 
 		# Renderizar imagen de la etiqueta
@@ -518,7 +613,7 @@ class Window_print(tk.Toplevel):
 		"""Acción del botón ➕ Agregar (o confirmación directa)."""
 		codigo = self.lote_codigo_agregar.get().strip()
 		if not codigo:
-			mb.showwarning(title="Atención", message="Ingrese un código patrimonial o interno.")
+			mb.showwarning(title="Atención", message="Ingrese un código patrimonial o interno.", parent=self)
 			return
 
 		if self._codigo_previsualizado == codigo and self._bien_pendiente_agregar is not None:
@@ -526,7 +621,7 @@ class Window_print(tk.Toplevel):
 		else:
 			bien_a_agregar = buscar_bien_por_codigo(codigo)
 			if not bien_a_agregar:
-				mb.showerror(title="No encontrado", message=f"No se encontró ningún bien con el código '{codigo}'.")
+				mb.showerror(title="No encontrado", message=f"No se encontró ningún bien con el código '{codigo}'.", parent=self)
 				return
 			ofic_activa = self.lote_ofic_personalizada.get().strip()
 			if ofic_activa:
@@ -542,7 +637,7 @@ class Window_print(tk.Toplevel):
 		"""Agrega un bien a self.lote_items, imprime si está habilitado y actualiza tabla."""
 		# Si se modificó la oficina en el panel de detalle antes de confirmar, usarla
 		ofic_detalle = self.prev_ofic_etiqueta.get().strip()
-		ofic_global = self.lote_ofic_personalizada.get().strip()
+		ofic_global  = self.lote_ofic_personalizada.get().strip()
 		if ofic_detalle:
 			bien["oficina_etiqueta"] = ofic_detalle
 		elif ofic_global:
@@ -552,18 +647,18 @@ class Window_print(tk.Toplevel):
 		cod_id = bien.get("codpat") or bien.get("codint")
 		for item in self.lote_items:
 			if (item.get("codpat") and item["codpat"] == bien.get("codpat")) or (item.get("codint") and item["codint"] == bien.get("codint")):
-				if not mb.askyesno(title="Ya existe", message=f"El bien con código {cod_id} ya está en la lista.\n¿Desea agregarlo nuevamente?"):
+				if not mb.askyesno(title="Ya existe", message=f"El bien con código {cod_id} ya está en la lista.\n¿Desea agregarlo nuevamente?", parent=self):
 					return False
 				break
 
 		# Si está activado imprimir al agregar, enviar inmediatamente a la impresora
 		if self.imprimir_al_agregar.get():
 			try:
-				cod_print = bien.get("codpat") or bien.get("codint")
+				cod_print  = bien.get("codpat") or bien.get("codint")
 				acta_print = bien.get("inv") or bien.get("acta_ant") or "1"
 				build_label(1, cod_print, acta_print, oficina_personalizada=bien.get("oficina_etiqueta"))
 			except Exception as e:
-				mb.showerror(title="Error al imprimir", message=f"No se pudo imprimir la etiqueta automáticamente:\n{e}")
+				mb.showerror(title="Error al imprimir", message=f"No se pudo imprimir la etiqueta automáticamente:\n{e}", parent=self)
 
 		self.lote_items.append(bien)
 		self._refrescar_tabla_lote()
@@ -579,7 +674,7 @@ class Window_print(tk.Toplevel):
 			imp_txt = " (🖨️ Impreso)" if self.imprimir_al_agregar.get() else ""
 			self.lbl_prev_info.config(
 				text=f"✅ Agregado a la lista: [{cod_id}]{imp_txt}", 
-				foreground="green"
+				foreground="#16a34a"
 			)
 		return True
 
@@ -620,7 +715,7 @@ class Window_print(tk.Toplevel):
 		self.prev_estado.set("")
 		self.lbl_lote_preview.config(image="", text="Vista previa de la etiqueta\n\n(50mm x 25mm)")
 		if hasattr(self, 'lbl_prev_info'):
-			self.lbl_prev_info.config(text="Seleccione un bien de la lista para ver su información y etiqueta", foreground="#555555")
+			self.lbl_prev_info.config(text="Seleccione un bien de la lista para ver su información y etiqueta", foreground="#64748b")
 
 	def _actualizar_oficina_bien_seleccionado(self):
 		nueva_ofic = self.prev_ofic_etiqueta.get().strip()
@@ -641,12 +736,12 @@ class Window_print(tk.Toplevel):
 				print(f"Error actualizando preview de bien pendiente: {e}")
 			if hasattr(self, 'lbl_prev_info'):
 				imp_aviso = " e IMPRIMIR" if self.imprimir_al_agregar.get() else ""
-				self.lbl_prev_info.config(text=f"✅ Oficina asignada: {nueva_ofic} ➔ Presione ENTER en 'Cód. Bien' para agregar{imp_aviso}", foreground="green")
+				self.lbl_prev_info.config(text=f"✅ Oficina asignada: {nueva_ofic} ➔ Presione ENTER en 'Cód. Bien' para agregar{imp_aviso}", foreground="#16a34a")
 			return
 
 		seleccion = self.tree_lote.selection()
 		if not seleccion:
-			mb.showwarning(title="Atención", message="Seleccione un bien de la tabla para modificar su oficina.")
+			mb.showwarning(title="Atención", message="Seleccione un bien de la tabla para modificar su oficina.", parent=self)
 			return
 		item_idx = self.tree_lote.index(seleccion[0])
 		if item_idx < 0 or item_idx >= len(self.lote_items):
@@ -655,31 +750,31 @@ class Window_print(tk.Toplevel):
 		self.tree_lote.set(seleccion[0], column="oficina", value=nueva_ofic)
 		self.previsualizar_seleccionado_lote()
 		if hasattr(self, 'lbl_prev_info'):
-			self.lbl_prev_info.config(text=f"✅ Oficina actualizada: {nueva_ofic}", foreground="green")
+			self.lbl_prev_info.config(text=f"✅ Oficina actualizada: {nueva_ofic}", foreground="#16a34a")
 
 	def imprimir_seleccionado_lote(self):
 		seleccion = self.tree_lote.selection()
 		if not seleccion:
-			mb.showwarning(title="Atención", message="Seleccione un bien de la tabla para imprimir.")
+			mb.showwarning(title="Atención", message="Seleccione un bien de la tabla para imprimir.", parent=self)
 			return
 		item_idx = self.tree_lote.index(seleccion[0])
 		if item_idx < 0 or item_idx >= len(self.lote_items):
 			return
 		item = self.lote_items[item_idx]
 		try:
-			cod = item.get("codpat", "") or item.get("codint", "")
+			cod  = item.get("codpat", "") or item.get("codint", "")
 			acta = item.get("inv", "") or item.get("acta_ant", "") or "1"
 			ofic = self.prev_ofic_etiqueta.get().strip() or item.get("oficina_etiqueta", "")
 			build_label(1, cod, acta, oficina_personalizada=ofic)
 			if hasattr(self, 'lbl_prev_info'):
-				self.lbl_prev_info.config(text=f"🖨️ Etiqueta impresa para: {cod}", foreground="blue")
+				self.lbl_prev_info.config(text=f"🖨️ Etiqueta impresa para: {cod}", foreground="#2563eb")
 		except Exception as e:
-			mb.showerror(title="Error al imprimir", message=f"No se pudo imprimir la etiqueta:\n{e}")
+			mb.showerror(title="Error al imprimir", message=f"No se pudo imprimir la etiqueta:\n{e}", parent=self)
 
 	def quitar_seleccionados_lote(self):
 		seleccion = self.tree_lote.selection()
 		if not seleccion:
-			mb.showwarning(title="Atención", message="Seleccione al menos un bien de la tabla para quitar.")
+			mb.showwarning(title="Atención", message="Seleccione al menos un bien de la tabla para quitar.", parent=self)
 			return
 
 		indices_a_quitar = sorted([self.tree_lote.index(s) for s in seleccion], reverse=True)
@@ -719,14 +814,14 @@ class Window_print(tk.Toplevel):
 		item = self.lote_items[item_idx]
 
 		# Llenar los campos de datos del bien seleccionado
-		codpat = item.get("codpat", "") or item.get("CodPat", "")
-		codint = item.get("codint", "") or item.get("CodInt", "")
-		deno = item.get("deno", "") or item.get("DenBien", "")
+		codpat   = item.get("codpat", "")   or item.get("CodPat", "")
+		codint   = item.get("codint", "")   or item.get("CodInt", "")
+		deno     = item.get("deno", "")     or item.get("DenBien", "")
 		acta_ant = item.get("acta_ant", "") or item.get("ActaAnt", "")
-		inv_val = item.get("inv", "") or item.get("Inv", "")
-		ofi_act = item.get("oficina_actual", "")
-		ofi_ant = item.get("oficina_anterior", "")
-		estado = item.get("estado_filtro", "") or item.get("estado_bien", "") or ""
+		inv_val  = item.get("inv", "")      or item.get("Inv", "")
+		ofi_act  = item.get("oficina_actual", "")
+		ofi_ant  = item.get("oficina_anterior", "")
+		estado   = item.get("estado_filtro", "") or item.get("estado_bien", "") or ""
 		ofic_etiq = item.get("oficina_etiqueta", "") or self.lote_ofic_personalizada.get().strip()
 
 		self.prev_codpat.set(codpat)
@@ -741,7 +836,7 @@ class Window_print(tk.Toplevel):
 		if hasattr(self, 'lbl_prev_info'):
 			self.lbl_prev_info.config(
 				text=f"Bien #{item_idx + 1} de {len(self.lote_items)}: [{codpat or codint}] {deno[:38]}",
-				foreground="#004488"
+				foreground="#2563eb"
 			)
 
 		# Renderizar etiqueta
@@ -762,7 +857,7 @@ class Window_print(tk.Toplevel):
 
 	def generar_pdf_lote(self):
 		if not self.lote_items:
-			mb.showwarning(title="Atención", message="La lista está vacía. Cargue bienes de una oficina o agregue códigos.")
+			mb.showwarning(title="Atención", message="La lista está vacía. Cargue bienes de una oficina o agregue códigos.", parent=self)
 			return
 
 		ofic_global = self.lote_ofic_personalizada.get().strip()
@@ -800,25 +895,27 @@ class Window_print(tk.Toplevel):
 
 			abrir = mb.askyesno(
 				title="Lote Generado Exitosamente",
-				message=f"Se generó el PDF con {len(self.lote_items)} etiquetas en:\n{pdf_path}\n\n¿Desea abrir el archivo ahora?"
+				message=f"Se generó el PDF con {len(self.lote_items)} etiquetas en:\n{pdf_path}\n\n¿Desea abrir el archivo ahora?",
+				parent=self
 			)
 			if abrir:
 				try:
 					os.startfile(pdf_path)
 				except Exception as err:
-					mb.showerror(title="Error al abrir", message=f"No se pudo abrir el visor de PDF:\n{err}")
+					mb.showerror(title="Error al abrir", message=f"No se pudo abrir el visor de PDF:\n{err}", parent=self)
 
 		except Exception as e:
-			mb.showerror(title="Error", message=f"Ocurrió un error al generar el lote en PDF:\n{e}")
+			mb.showerror(title="Error", message=f"Ocurrió un error al generar el lote en PDF:\n{e}", parent=self)
 
 	def imprimir_lote(self):
 		if not self.lote_items:
-			mb.showwarning(title="Atención", message="La lista está vacía. Cargue bienes de una oficina o agregue códigos.")
+			mb.showwarning(title="Atención", message="La lista está vacía. Cargue bienes de una oficina o agregue códigos.", parent=self)
 			return
 
 		confirm = mb.askyesno(
 			title="Confirmar Impresión en Lote",
-			message=f"Se enviarán {len(self.lote_items)} etiquetas a la impresora predeterminada.\n\n¿Desea continuar con la impresión?"
+			message=f"Se enviarán {len(self.lote_items)} etiquetas a la impresora predeterminada.\n\n¿Desea continuar con la impresión?",
+			parent=self
 		)
 		if not confirm:
 			return
@@ -831,9 +928,9 @@ class Window_print(tk.Toplevel):
 				oficina_personalizada_global=ofic_global if ofic_global else None
 			)
 			if pdf_path:
-				mb.showinfo(title="Impresión enviada", message=f"Se han enviado {len(self.lote_items)} etiquetas a la cola de impresión.")
+				mb.showinfo(title="Impresión enviada", message=f"Se han enviado {len(self.lote_items)} etiquetas a la cola de impresión.", parent=self)
 		except Exception as e:
-			mb.showerror(title="Error de impresión", message=f"No se pudo enviar el lote a la impresora:\n{e}")
+			mb.showerror(title="Error de impresión", message=f"No se pudo enviar el lote a la impresora:\n{e}", parent=self)
 
 	# -------------------------------------------------------------------------
 	# PESTAÑA 2: AJUSTES Y CONFIGURACIÓN
@@ -842,28 +939,52 @@ class Window_print(tk.Toplevel):
 		self.ent = tk.StringVar()
 		self.per = tk.StringVar()
 
-		frame_izq = tk.Frame(self.tab_ajustes, bg="#ffffff")
-		frame_izq.pack(fill='both', side='left', expand=True, padx=20, pady=20)
+		outer = tk.Frame(self.tab_ajustes, bg="#f8fafc")
+		outer.pack(fill="both", expand=True, padx=16, pady=16)
 
-		lblEnt = ttk.Label(frame_izq, text="Entidad:")
-		lblEnt.grid(row=0, column=0, sticky="w", pady=6)
-		etrEnt = ttk.Entry(frame_izq, textvariable=self.ent, width=40)
-		etrEnt.grid(row=0, column=1, sticky="ew", pady=6, padx=5)
+		# ---- Card izquierda: Datos de la Entidad ----
+		card_ent = ttk.LabelFrame(outer, text=" 🏢 Datos de la Entidad ", style="Print.TLabelframe", padding=14)
+		card_ent.pack(side="left", fill="both", expand=True, padx=(0, 10))
 
-		lblPer = ttk.Label(frame_izq, text="Periodo:")
-		lblPer.grid(row=1, column=0, sticky="w", pady=6)
-		cbxPer = ttk.Combobox(frame_izq, values=[2020, 2021, 2022, 2023, 2024, 2025, 2026], textvariable=self.per, state="readonly", width=38)
-		cbxPer.grid(row=1, column=1, sticky="ew", pady=6, padx=5)
+		ttk.Label(card_ent, text="Entidad:", font=("Segoe UI", 9)).grid(row=0, column=0, sticky="w", pady=8)
+		ttk.Entry(card_ent, textvariable=self.ent, width=38).grid(row=0, column=1, sticky="ew", pady=8, padx=(8, 0))
 
-		btnActualizar = ttk.Button(frame_izq, text="💾 Guardar Ajustes", command=self.actualizar)
-		btnActualizar.grid(row=2, column=1, sticky="e", pady=15, padx=5)
+		ttk.Label(card_ent, text="Periodo:", font=("Segoe UI", 9)).grid(row=1, column=0, sticky="w", pady=8)
+		ttk.Combobox(
+			card_ent,
+			values=[2020, 2021, 2022, 2023, 2024, 2025, 2026],
+			textvariable=self.per,
+			state="readonly",
+			width=36
+		).grid(row=1, column=1, sticky="ew", pady=8, padx=(8, 0))
 
-		frame_der = tk.Frame(self.tab_ajustes, bg="#ffffff")
-		frame_der.pack(fill='both', side='right', padx=20, pady=20)
+		ttk.Button(card_ent, text="💾 Guardar Ajustes", command=self.actualizar).grid(
+			row=2, column=1, sticky="e", pady=(12, 0), padx=(8, 0)
+		)
 
-		ttk.Label(frame_der, text="Logo de etiqueta:").pack(pady=4)
-		self.img_label = tk.Label(frame_der, bg="#eaeaea", width=25, height=12)
-		self.img_label.pack(pady=4)
+		ttk.Separator(card_ent, orient="horizontal").grid(row=3, column=0, columnspan=2, sticky="ew", pady=(20, 12))
+
+		ttk.Label(card_ent, text="Diseño y Formato de Etiqueta:", font=("Segoe UI", 9, "bold")).grid(
+			row=4, column=0, columnspan=2, sticky="w", pady=(0, 8)
+		)
+		ttk.Button(
+			card_ent,
+			text="📐 Diseñador de Etiqueta (Editar Posiciones y Tamaños)...",
+			command=self.abrir_disenador_etiqueta
+		).grid(row=5, column=0, columnspan=2, sticky="ew", pady=6)
+
+		card_ent.columnconfigure(1, weight=1)
+
+		# ---- Card derecha: Logo ----
+		card_logo = ttk.LabelFrame(outer, text=" 🖼️ Logo de la Etiqueta ", style="Print.TLabelframe", padding=14)
+		card_logo.pack(side="right", fill="y", padx=(10, 0))
+
+		frame_img_box = tk.Frame(card_logo, bg="#f1f5f9", bd=1, relief="solid", width=200, height=140)
+		frame_img_box.pack_propagate(False)
+		frame_img_box.pack(pady=(0, 8))
+
+		self.img_label = tk.Label(frame_img_box, bg="#f1f5f9", fg="#94a3b8", text="Sin imagen", font=("Segoe UI", 9))
+		self.img_label.pack(fill="both", expand=True)
 
 		datos = datos_iniciales()
 		if datos and len(datos) > 2:
@@ -882,7 +1003,7 @@ class Window_print(tk.Toplevel):
 				image = Image.open(self.img_label_path)
 				image.thumbnail((180, 180))
 				self.photo = ImageTk.PhotoImage(image)
-				self.img_label.config(image=self.photo)
+				self.img_label.config(image=self.photo, text="")
 			except Exception as e:
 				print(f"Error cargando imagen de ajustes: {e}")
 
@@ -890,11 +1011,36 @@ class Window_print(tk.Toplevel):
 		lista = [self.ent.get(), self.per.get()]
 		try:
 			actualizar_datos(1, lista)
-			mb.showinfo(title="Acontar S.A.C.", message="¡Ajustes actualizados con éxito!")
+			mb.showinfo(title="Acontar S.A.C.", message="¡Ajustes actualizados con éxito!", parent=self)
 		except Exception as e:
-			mb.showerror(title="Error", message=f"Ocurrió un error: {e}")
+			mb.showerror(title="Error", message=f"Ocurrió un error: {e}", parent=self)
 		finally:
 			self.focus_set()
+
+	def abrir_disenador_etiqueta(self):
+		"""Abre la ventana del diseñador y editor interactivo de etiquetas."""
+		from gui.gui_label_designer import Window_label_designer
+		Window_label_designer(self, on_save_callback=self._on_layout_actualizado)
+
+	def _on_layout_actualizado(self):
+		"""Callback ejecutado al guardar cambios en el diseñador para refrescar previsualizaciones."""
+		try:
+			from db.query import datos_iniciales
+			datos = datos_iniciales()
+			if datos and len(datos) > 2:
+				if hasattr(self, 'ent') and datos[1]:
+					self.ent.set(str(datos[1]))
+				if hasattr(self, 'per') and datos[2]:
+					self.per.set(str(datos[2]))
+
+			if hasattr(self, 'tree_lote') and self.tree_lote.selection():
+				self.previsualizar_seleccionado_lote()
+			elif hasattr(self, '_bien_pendiente_agregar') and self._bien_pendiente_agregar is not None:
+				codigo = self.lote_codigo_agregar.get().strip()
+				if codigo:
+					self.previsualizar_codigo_entrada(codigo)
+		except Exception as e:
+			print(f"Error al refrescar tras actualizar diseño: {e}")
 
 
 # =============================================================================
@@ -908,12 +1054,15 @@ class Window_individual_popup(tk.Toplevel):
 		self.valor = valor or 1
 		self.callback_agregar = callback_agregar
 		self.imprimir_al_agregar_var = imprimir_al_agregar_var
-		self.title("Búsqueda Detallada - Agregar Bien a la Lista")
-		self.iconbitmap('./img/favicon.ico')
-		self.geometry("820x520")
+		self.title("Búsqueda Detallada — Agregar Bien a la Lista")
+		self.geometry("860x550")
 		self.minsize(780, 480)
+		self.configure(bg="#f8fafc")
 		self.transient(parent)
 		self.grab_set()
+
+		self._cargar_icono()
+		self._centrar_ventana(860, 550)
 
 		self.acta = tk.StringVar()
 		self.codi = tk.StringVar()
@@ -941,83 +1090,110 @@ class Window_individual_popup(tk.Toplevel):
 		self.btnAgregar.focus_set()
 		self.after(50, lambda: self.btnAgregar.focus_set())
 
+	# -------------------------------------------------------------------------
+	def _cargar_icono(self):
+		try:
+			from utils.helpers import resource_path
+			self.iconbitmap(resource_path("img/favicon.ico"))
+		except Exception:
+			pass
+
+	def _centrar_ventana(self, w, h):
+		self.update_idletasks()
+		sw = self.winfo_screenwidth()
+		sh = self.winfo_screenheight()
+		x = (sw - w) // 2
+		y = (sh - h) // 2
+		self.geometry(f"{w}x{h}+{x}+{y}")
+
 	def _crear_widgets(self):
-		contenedor = ttk.Frame(self, padding=10)
-		contenedor.pack(fill="both", expand=True)
+		contenedor = tk.Frame(self, bg="#f8fafc")
+		contenedor.pack(fill="both", expand=True, padx=10, pady=10)
 
 		# Marco Izquierdo: Formulario
-		frame_form = tk.Frame(contenedor, bg="#ffffff", bd=1, relief="groove", padx=8, pady=8)
+		frame_form = tk.Frame(contenedor, bg="#ffffff", bd=1, relief="solid", padx=10, pady=10)
 		frame_form.pack(side="left", fill="both", expand=True, padx=(0, 8))
 
 		# Marco Derecho: Vista Previa
-		frame_der = tk.Frame(contenedor, bd=1, relief="groove", padx=6, pady=6)
+		frame_der = tk.Frame(contenedor, bg="#ffffff", bd=1, relief="solid", padx=8, pady=8)
 		frame_der.pack(side="right", fill="y")
 
-		frame_popup_img = tk.Frame(frame_der, bg="#ffffff", bd=2, relief="groove", width=320, height=160)
+		# Caja de imagen preview
+		frame_popup_img = tk.Frame(frame_der, bg="#f1f5f9", bd=1, relief="solid", width=320, height=160)
 		frame_popup_img.pack_propagate(False)
 		frame_popup_img.pack(fill="none", expand=False, pady=4)
 
-		self.lbl_preview = tk.Label(frame_popup_img, text="Vista previa de la etiqueta\n\n(50mm x 25mm)", bg="#ffffff", fg="#666666", font=("Segoe UI", 9))
+		self.lbl_preview = tk.Label(
+			frame_popup_img,
+			text="Vista previa de la etiqueta\n\n(50mm x 25mm)",
+			bg="#f1f5f9",
+			fg="#94a3b8",
+			font=("Segoe UI", 9)
+		)
 		self.lbl_preview.pack(fill="both", expand=True)
 
 		if self.valor == 1:
 			# Labels
-			ttk.Label(frame_form, text="Código Pat/Int:").grid(column=0, row=0, padx=4, pady=3, sticky=EW)
-			ttk.Label(frame_form, text="Ficha:").grid(column=0, row=1, padx=4, pady=3, sticky=EW)
-			ttk.Label(frame_form, text="Denominación:").grid(column=0, row=2, padx=4, pady=3, sticky=EW)
-			ttk.Label(frame_form, text="Código Interno:").grid(column=0, row=3, padx=4, pady=3, sticky=EW)
-			ttk.Label(frame_form, text="Código Patrimonial:").grid(column=0, row=4, padx=4, pady=3, sticky=EW)
-			ttk.Label(frame_form, text="Ubicación actual:").grid(column=0, row=5, padx=4, pady=3, sticky=EW)
-			ttk.Label(frame_form, text="Ubicación anterior:").grid(column=0, row=6, padx=4, pady=3, sticky=EW)
-			ttk.Label(frame_form, text="Oficina etiqueta:").grid(column=0, row=7, padx=4, pady=3, sticky=EW)
+			ttk.Label(frame_form, text="Código Pat/Int:").grid(column=0, row=0, padx=4, pady=4, sticky=EW)
+			ttk.Label(frame_form, text="Ficha:").grid(column=0, row=1, padx=4, pady=4, sticky=EW)
+			ttk.Label(frame_form, text="Denominación:").grid(column=0, row=2, padx=4, pady=4, sticky=EW)
+			ttk.Label(frame_form, text="Código Interno:").grid(column=0, row=3, padx=4, pady=4, sticky=EW)
+			ttk.Label(frame_form, text="Código Patrimonial:").grid(column=0, row=4, padx=4, pady=4, sticky=EW)
+			ttk.Label(frame_form, text="Ubicación actual:").grid(column=0, row=5, padx=4, pady=4, sticky=EW)
+			ttk.Label(frame_form, text="Ubicación anterior:").grid(column=0, row=6, padx=4, pady=4, sticky=EW)
+			ttk.Label(frame_form, text="Oficina etiqueta:").grid(column=0, row=7, padx=4, pady=4, sticky=EW)
 
 			# Entrys
 			self.etrCod = ttk.Entry(frame_form, textvariable=self.codi, width=18)
-			self.etrCod.grid(column=1, row=0, padx=4, pady=3, sticky=EW)
+			self.etrCod.grid(column=1, row=0, padx=4, pady=4, sticky=EW)
 			self.etrCod.bind("<Return>", lambda _e: self.buscar())
 
 			self.etrAct = ttk.Entry(frame_form, textvariable=self.acta)
-			self.etrAct.grid(column=1, row=1, padx=4, pady=3, sticky=EW)
+			self.etrAct.grid(column=1, row=1, padx=4, pady=4, sticky=EW)
 			self.acta.trace_add("write", self._acta_cambiada)
 
-			ttk.Button(frame_form, text="🔍 Buscar", command=self.buscar).grid(column=2, row=0, padx=4, pady=3, sticky="nsew")
-			ttk.Button(frame_form, text="👁️ Previsualizar", command=self.preview_pdf).grid(column=2, row=1, padx=4, pady=3, sticky="nsew")
+			ttk.Button(frame_form, text="🔍 Buscar",       command=self.buscar).grid(      column=2, row=0, padx=4, pady=4, sticky="nsew")
+			ttk.Button(frame_form, text="👁️ Previsualizar", command=self.preview_pdf).grid(column=2, row=1, padx=4, pady=4, sticky="nsew")
 
-			ttk.Entry(frame_form, textvariable=self.deno).grid(column=1, row=2, columnspan=2, padx=4, pady=3, sticky=EW)
-			ttk.Entry(frame_form, textvariable=self.codI).grid(column=1, row=3, columnspan=2, padx=4, pady=3, sticky=EW)
-			ttk.Entry(frame_form, textvariable=self.codP).grid(column=1, row=4, columnspan=2, padx=4, pady=3, sticky=EW)
-			ttk.Entry(frame_form, textvariable=self.inve).grid(column=1, row=5, columnspan=2, padx=4, pady=3, sticky=EW)
-			ttk.Entry(frame_form, textvariable=self.ubic).grid(column=1, row=6, columnspan=2, padx=4, pady=3, sticky=EW)
+			ttk.Entry(frame_form, textvariable=self.deno).grid(column=1, row=2, columnspan=2, padx=4, pady=4, sticky=EW)
+			ttk.Entry(frame_form, textvariable=self.codI).grid(column=1, row=3, columnspan=2, padx=4, pady=4, sticky=EW)
+			ttk.Entry(frame_form, textvariable=self.codP).grid(column=1, row=4, columnspan=2, padx=4, pady=4, sticky=EW)
+			ttk.Entry(frame_form, textvariable=self.inve).grid(column=1, row=5, columnspan=2, padx=4, pady=4, sticky=EW)
+			ttk.Entry(frame_form, textvariable=self.ubic).grid(column=1, row=6, columnspan=2, padx=4, pady=4, sticky=EW)
 
 			# OFICINA DIRECTAMENTE EDITABLE (Sin checkbox)
 			self.etrOfi = ttk.Entry(frame_form, textvariable=self.ofic)
-			self.etrOfi.grid(column=1, row=7, columnspan=2, padx=4, pady=3, sticky=EW)
+			self.etrOfi.grid(column=1, row=7, columnspan=2, padx=4, pady=4, sticky=EW)
 			self.etrOfi.bind("<Return>", lambda _e: self.preview_pdf())
 
 		elif self.valor == 2:
-			ttk.Label(frame_form, text="Item:").grid(column=0, row=0, padx=4, pady=3, sticky=EW)
-			ttk.Label(frame_form, text="Local:").grid(column=0, row=1, padx=4, pady=3, sticky=EW)
-			ttk.Label(frame_form, text="Área:").grid(column=0, row=2, padx=4, pady=3, sticky=EW)
-			ttk.Label(frame_form, text="Oficina etiqueta:").grid(column=0, row=3, padx=4, pady=3, sticky=EW)
-			ttk.Label(frame_form, text="Denominación:").grid(column=0, row=4, padx=4, pady=3, sticky=EW)
+			ttk.Label(frame_form, text="Item:").grid(column=0, row=0, padx=4, pady=4, sticky=EW)
+			ttk.Label(frame_form, text="Local:").grid(column=0, row=1, padx=4, pady=4, sticky=EW)
+			ttk.Label(frame_form, text="Área:").grid(column=0, row=2, padx=4, pady=4, sticky=EW)
+			ttk.Label(frame_form, text="Oficina etiqueta:").grid(column=0, row=3, padx=4, pady=4, sticky=EW)
+			ttk.Label(frame_form, text="Denominación:").grid(column=0, row=4, padx=4, pady=4, sticky=EW)
 
 			self.etrCod = ttk.Entry(frame_form, textvariable=self.codi, width=18)
-			self.etrCod.grid(column=1, row=0, padx=4, pady=3, sticky=EW)
+			self.etrCod.grid(column=1, row=0, padx=4, pady=4, sticky=EW)
 			self.etrCod.bind("<Return>", lambda _e: self.buscar_sobrante())
 
-			ttk.Button(frame_form, text="🔍 Buscar", command=self.buscar_sobrante).grid(column=2, row=0, padx=4, pady=3, sticky="nsew")
+			ttk.Button(frame_form, text="🔍 Buscar", command=self.buscar_sobrante).grid(column=2, row=0, padx=4, pady=4, sticky="nsew")
 
-			ttk.Entry(frame_form, textvariable=self.loca).grid(column=1, row=1, columnspan=2, padx=4, pady=3, sticky=EW)
-			ttk.Entry(frame_form, textvariable=self.area).grid(column=1, row=2, columnspan=2, padx=4, pady=3, sticky=EW)
+			ttk.Entry(frame_form, textvariable=self.loca).grid(column=1, row=1, columnspan=2, padx=4, pady=4, sticky=EW)
+			ttk.Entry(frame_form, textvariable=self.area).grid(column=1, row=2, columnspan=2, padx=4, pady=4, sticky=EW)
 			self.etrOfi = ttk.Entry(frame_form, textvariable=self.ofic)
-			self.etrOfi.grid(column=1, row=3, columnspan=2, padx=4, pady=3, sticky=EW)
-			ttk.Entry(frame_form, textvariable=self.deno).grid(column=1, row=4, columnspan=2, padx=4, pady=3, sticky=EW)
+			self.etrOfi.grid(column=1, row=3, columnspan=2, padx=4, pady=4, sticky=EW)
+			ttk.Entry(frame_form, textvariable=self.deno).grid(column=1, row=4, columnspan=2, padx=4, pady=4, sticky=EW)
 
 		frame_form.columnconfigure(1, weight=1)
 
 		# Marco de Botones de Acción inferior
-		frame_acciones = ttk.Frame(self, padding=8)
-		frame_acciones.pack(fill="x", side="bottom")
+		frame_acciones = tk.Frame(self, bg="#f1f5f9", bd=0)
+		frame_acciones.pack(fill="x", side="bottom", padx=10, pady=(0, 10))
+
+		# Separador visual
+		sep = ttk.Separator(self, orient="horizontal")
+		sep.pack(fill="x", side="bottom", padx=10, pady=(0, 2))
 
 		chkImp = ttk.Checkbutton(
 			frame_acciones, 
@@ -1025,22 +1201,22 @@ class Window_individual_popup(tk.Toplevel):
 			variable=self.imprimir_aqui,
 			command=self._sync_imprimir_var
 		)
-		chkImp.pack(side="left", padx=10)
+		chkImp.pack(side="left", padx=10, pady=8)
 
 		btnCerrar = ttk.Button(frame_acciones, text="Cerrar", command=self.destroy)
-		btnCerrar.pack(side="right", padx=5)
+		btnCerrar.pack(side="right", padx=5, pady=8)
 
 		self.btnAgregar = ttk.Button(frame_acciones, text="➕ Agregar a la Lista de Lote", command=self.agregar_a_lista, default="active")
-		self.btnAgregar.pack(side="right", padx=5)
-		self.btnAgregar.bind("<Return>", lambda _e: self.agregar_a_lista())
+		self.btnAgregar.pack(side="right", padx=5, pady=8)
+		self.btnAgregar.bind("<Return>",   lambda _e: self.agregar_a_lista())
 		self.btnAgregar.bind("<KP_Enter>", lambda _e: self.agregar_a_lista())
 
 		self.btnImpYAdd = ttk.Button(frame_acciones, text="🖨️ Imprimir y Agregar", command=self.imprimir_y_agregar)
-		self.btnImpYAdd.pack(side="right", padx=5)
-		self.btnImpYAdd.bind("<Return>", lambda _e: self.imprimir_y_agregar())
+		self.btnImpYAdd.pack(side="right", padx=5, pady=8)
+		self.btnImpYAdd.bind("<Return>",   lambda _e: self.imprimir_y_agregar())
 		self.btnImpYAdd.bind("<KP_Enter>", lambda _e: self.imprimir_y_agregar())
 
-		self.lbl_estado = ttk.Label(frame_acciones, text="", foreground="green", font=("Segoe UI", 9, "italic"))
+		self.lbl_estado = ttk.Label(frame_acciones, text="", foreground="#16a34a", font=("Segoe UI", 9, "italic"))
 		self.lbl_estado.pack(side="left", padx=10)
 
 	def _sync_imprimir_var(self):
@@ -1060,12 +1236,12 @@ class Window_individual_popup(tk.Toplevel):
 	def buscar(self):
 		codigo = self.codi.get().strip()
 		if not codigo:
-			mb.showerror(title="Atención", message="Ingrese un código a consultar.")
+			mb.showerror(title="Atención", message="Ingrese un código a consultar.", parent=self)
 			return False
 		try:
 			r = mostrar_datos_print(codigo)
 			if not r:
-				mb.showerror(title="No encontrado", message="No se encontraron datos para el código ingresado.")
+				mb.showerror(title="No encontrado", message="No se encontraron datos para el código ingresado.", parent=self)
 				return False
 			self.deno.set(r[0] or "")
 			self.codI.set(r[1] or "")
@@ -1085,18 +1261,18 @@ class Window_individual_popup(tk.Toplevel):
 			self.btnAgregar.focus_set()
 			return True
 		except Exception as e:
-			mb.showerror(title="Error", message=f"No se pudieron consultar los datos:\n{e}")
+			mb.showerror(title="Error", message=f"No se pudieron consultar los datos:\n{e}", parent=self)
 			return False
 
 	def buscar_sobrante(self):
 		codigo = self.codi.get().strip()
 		if not codigo:
-			mb.showerror(title="Atención", message="Ingrese un código de bien sobrante.")
+			mb.showerror(title="Atención", message="Ingrese un código de bien sobrante.", parent=self)
 			return False
 		try:
 			r = mostrar_datos_sobrante(codigo)
 			if not r:
-				mb.showerror(title="Error", message="No se encontraron datos para el código de sobrante.")
+				mb.showerror(title="Error", message="No se encontraron datos para el código de sobrante.", parent=self)
 				return False
 			self.loca.set(str(r[0]))
 			self.area.set(str(r[1]))
@@ -1107,7 +1283,7 @@ class Window_individual_popup(tk.Toplevel):
 			self.btnAgregar.focus_set()
 			return True
 		except Exception as e:
-			mb.showerror(title="Error", message=f"No se pudo consultar el sobrante:\n{e}")
+			mb.showerror(title="Error", message=f"No se pudo consultar el sobrante:\n{e}", parent=self)
 			return False
 
 	def preview_pdf(self):
@@ -1138,10 +1314,10 @@ class Window_individual_popup(tk.Toplevel):
 	def agregar_a_lista(self):
 		codpat = self.codP.get().strip() or self.codi.get().strip()
 		codint = self.codI.get().strip() or self.codi.get().strip()
-		deno = self.deno.get().strip()
+		deno   = self.deno.get().strip()
 
 		if not codpat and not codint:
-			mb.showwarning(title="Atención", message="Debe buscar o ingresar al menos un código válido antes de agregar.")
+			mb.showwarning(title="Atención", message="Debe buscar o ingresar al menos un código válido antes de agregar.", parent=self)
 			return
 
 		ofic_val = self.ofic.get().strip()
@@ -1152,7 +1328,7 @@ class Window_individual_popup(tk.Toplevel):
 			try:
 				build_label(1, codpat or codint, acta_val, oficina_personalizada=ofic_val)
 			except Exception as e:
-				mb.showerror(title="Error al imprimir", message=f"No se pudo imprimir la etiqueta:\n{e}")
+				mb.showerror(title="Error al imprimir", message=f"No se pudo imprimir la etiqueta:\n{e}", parent=self)
 
 		bien_dict = {
 			"codpat": codpat,

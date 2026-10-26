@@ -1,376 +1,568 @@
 import tkinter as tk
 from tkinter import ttk, filedialog
 from tkinter import messagebox as mb
-from db.query import rep_vehiculos, registrar_vehiculo, selec_vehiculos, selec_vehiculos_tab1
-from db.query import actualizar_vehiculo
+from db.query import (
+	rep_vehiculos, 
+	registrar_vehiculo, 
+	selec_vehiculos, 
+	selec_vehiculos_tab1, 
+	actualizar_vehiculo
+)
 from reportes.ficha_vehicular import iniciar_reporte
 from gui.gui_detalles import Window_detalles
+from utils.helpers import resource_path
 
 class Window_vehiculos(tk.Toplevel):
-    def __init__(self, root=None):
-        super().__init__(root)
+	"""Ventana de gestión, inventario y ficha técnica de vehículos."""
+	def __init__(self, root=None):
+		super().__init__(root)
+		self.title("Gestión y Ficha Técnica de Vehículos")
+		self.geometry("1260x780")
+		self.minsize(1100, 640)
+		self.configure(bg="#f8fafc")
+		self.transient(root)
 
-        self.title("Vehiculos")
-        self.iconbitmap('./img/favicon.ico')
+		self._cargar_icono()
+		self._centrar_ventana(1260, 780)
+		self._configurar_estilos()
 
-        self.notebook = ttk.Notebook(self)
-        self.tab1 = tk.Frame(self.notebook)
-        self.notebook.add(self.tab1, text="Pestaña 1")
+		# Variables para los 18 campos del vehículo (Tab 1)
+		self.codi = tk.StringVar()
+		self.v = [tk.StringVar() for _ in range(18)]
 
-        self.tab2 = tk.Frame(self.notebook)
-        self.notebook.add(self.tab2, text="Pestaña 2")
-        
-        self.notebook.pack(fill='both', expand=True)
-    
-        self.tab1_()
-        self.mostra_datos()
-        # self.tab2_()
+		# Variables de filtrado
+		self.crit = tk.StringVar(value="Cod Patrimonial")
+		self.camp = tk.StringVar()
 
-    def tab1_(self):
-        self.frameU = tk.Frame(self.tab1)
-        self.frameU.pack(fill='both', expand=True)
+		# Variables para los 11 campos técnicos (Tab 2)
+		self.cod_tec = tk.StringVar()
+		self.txt_tecnicos = []
 
-        self.frame1 = tk.Frame(self.frameU, bg='white')
-        self.frame1.pack(fill='both', side='top')
-        
-        self.frame2 = tk.Frame(self.frameU, bg='#e30613')
-        self.frame2.pack(fill='both', side='bottom', expand=True)
-        
-        self.frame2.rowconfigure(0, weight=1)
-        self.frame2.columnconfigure(0, weight=1)
+		# Notebook
+		self.notebook = ttk.Notebook(self, style="Vehiculos.TNotebook")
+		self.tab1 = tk.Frame(self.notebook, bg="#f8fafc")
+		self.tab2 = tk.Frame(self.notebook, bg="#f8fafc")
 
-        self.widget_frame1()
-        self.tree_view()
+		self.notebook.add(self.tab1, text="  🚗  Información General e Inventario  ")
+		self.notebook.add(self.tab2, text="  🔧  Inspección Técnica por Sistemas  ")
+		self.notebook.pack(fill="both", expand=True, padx=8, pady=8)
 
-        self.tree.bind("<Double-Button-1>", self.mostrar_datos_)
-        self.tree.bind("<Triple-Button-1>", self.mostrar_detalles_)
-        
-    def widget_frame1(self):
-        
-        self.codi = tk.StringVar()
+		self.tab1_init()
+		self.tab2_init()
+		self.mostra_datos()
 
-        self.lblCod = ttk.Label(self.frame1, text='Código').grid(row=0, column=0, padx=1, pady=1, sticky='ew')
-        self.etrCod = ttk.Entry(self.frame1, textvariable=self.codi).grid(row=0, column=1, padx=1, pady=1, sticky='ew')
-        self.btnBus = ttk.Button(self.frame1, text='Buscar', command=lambda:self.buscar_codigo(self.codi.get())).grid(row=0, column=2, padx=1, pady=1, sticky='ew')
-        self.btnAct = ttk.Button(self.frame1, text='Actualizar', command=lambda:self.actualizar()).grid(row=0, column=3, padx=1, pady=1, sticky='ew')
-        self.btnPdf = ttk.Button(self.frame1, text='Generar ficha', command=lambda:self.generar_ficha()).grid(row=0,  column=4, padx=1, pady=1, sticky='ew')
+	# -------------------------------------------------------------------------
+	# CONFIGURACIÓN Y ESTILOS
+	# -------------------------------------------------------------------------
+	def _cargar_icono(self):
+		try:
+			self.iconbitmap(resource_path("img/favicon.ico"))
+		except Exception:
+			pass
 
-        self.v = []
-        for i in range(18):
-            string_var = tk.StringVar()
-            self.v.append(string_var)
+	def _centrar_ventana(self, w, h):
+		self.update_idletasks()
+		sw = self.winfo_screenwidth()
+		sh = self.winfo_screenheight()
+		x = (sw - w) // 2
+		y = (sh - h) // 2
+		self.geometry(f"{w}x{h}+{x}+{y}")
 
-        self.l1 = ttk.Label(self.frame1, text="Entidad").grid(row=1, column=0, padx=1, pady=1, sticky='ew')
-        self.l2 = ttk.Label(self.frame1, text="Denominación").grid(row=2, column=0, padx=1, pady=1, sticky='ew')
-        self.l3 = ttk.Label(self.frame1, text="N° Placa vehícular").grid(row=3, column=0, padx=1, pady=1, sticky='ew')
-        self.l4 = ttk.Label(self.frame1, text="Carroceria").grid(row=4, column=0, padx=1, pady=1, sticky='ew')
-        self.l5 = ttk.Label(self.frame1, text="Marca").grid(row=5, column=0, padx=1, pady=1, sticky='ew')
-        self.l6 = ttk.Label(self.frame1, text="Modelo").grid(row=6, column=0, padx=1, pady=1, sticky='ew')
+	def _configurar_estilos(self):
+		style = ttk.Style(self)
 
-        self.e1 = ttk.Entry(self.frame1, textvariable=self.v[0]).grid(row=1, column=1, padx=1, pady=1, sticky='ew')
-        self.e2 = ttk.Entry(self.frame1, textvariable=self.v[1]).grid(row=2, column=1, padx=1, pady=1, sticky='ew')
-        self.e3 = ttk.Entry(self.frame1, textvariable=self.v[2]).grid(row=3, column=1, padx=1, pady=1, sticky='ew')
-        self.e4 = ttk.Entry(self.frame1, textvariable=self.v[3]).grid(row=4, column=1, padx=1, pady=1, sticky='ew')
-        self.e5 = ttk.Entry(self.frame1, textvariable=self.v[4]).grid(row=5, column=1, padx=1, pady=1, sticky='ew')
-        self.e6 = ttk.Entry(self.frame1, textvariable=self.v[5]).grid(row=6, column=1, padx=1, pady=1, sticky='ew')
+		# Notebook
+		style.configure("Vehiculos.TNotebook",
+			background="#f1f5f9",
+			tabmargins=[0, 0, 0, 0]
+		)
+		style.configure("Vehiculos.TNotebook.Tab",
+			font=("Segoe UI", 9, "bold"),
+			padding=[14, 6],
+			background="#e2e8f0",
+			foreground="#475569"
+		)
+		style.map("Vehiculos.TNotebook.Tab",
+			background=[("selected", "#ffffff")],
+			foreground=[("selected", "#1e293b")]
+		)
 
+		# Cards Frame
+		style.configure("Vehiculos.TLabelframe",
+			background="#ffffff",
+			relief="solid",
+			borderwidth=1,
+			bordercolor="#e2e8f0"
+		)
+		style.configure("Vehiculos.TLabelframe.Label",
+			background="#ffffff",
+			foreground="#334155",
+			font=("Segoe UI", 9, "bold")
+		)
 
-        self.l7 = ttk.Label(self.frame1, text="Categoria").grid(row=1, column=2, padx=5, pady=1, sticky='ew')
-        self.l8 = ttk.Label(self.frame1, text="N° de chasis (VIN)").grid(row=2, column=2, padx=5, pady=1, sticky='ew')
-        self.l9 = ttk.Label(self.frame1, text="N° de ejes").grid(row=3, column=2, padx=5, pady=1, sticky='ew')
-        self.l10 = ttk.Label(self.frame1, text="N° de motor").grid(row=4, column=2, padx=5, pady=1, sticky='ew')
-        self.l11 = ttk.Label(self.frame1, text="N° de serie").grid(row=5, column=2, padx=5, pady=1, sticky='ew')
-        self.l12 = ttk.Label(self.frame1, text="Año de fabricación").grid(row=6, column=2, padx=5, pady=1, sticky='ew')
+		# Treeview
+		style.configure("Vehiculos.Treeview",
+			background="#ffffff",
+			fieldbackground="#ffffff",
+			foreground="#0f172a",
+			font=("Segoe UI", 9),
+			rowheight=24
+		)
+		style.configure("Vehiculos.Treeview.Heading",
+			background="#f1f5f9",
+			foreground="#475569",
+			font=("Segoe UI", 8, "bold"),
+			relief="flat",
+			padding=(6, 6)
+		)
+		style.map("Vehiculos.Treeview",
+			background=[("selected", "#2563eb")],
+			foreground=[("selected", "#ffffff")]
+		)
 
-        self.e7 = ttk.Entry(self.frame1, textvariable=self.v[6]).grid(row=1, column=3, padx=5, pady=1, sticky='ew')
-        self.e8 = ttk.Entry(self.frame1, textvariable=self.v[7]).grid(row=2, column=3, padx=5, pady=1, sticky='ew')
-        self.e9 = ttk.Entry(self.frame1, textvariable=self.v[8]).grid(row=3, column=3, padx=5, pady=1, sticky='ew')
-        self.e10 = ttk.Entry(self.frame1, textvariable=self.v[9]).grid(row=4, column=3, padx=5, pady=1, sticky='ew')
-        self.e11 = ttk.Entry(self.frame1, textvariable=self.v[10]).grid(row=5, column=3, padx=5, pady=1, sticky='ew')
-        self.e12 = ttk.Entry(self.frame1, textvariable=self.v[11]).grid(row=6, column=3, padx=5, pady=1, sticky='ew')
+	# -------------------------------------------------------------------------
+	# PESTAÑA 1: INFORMACIÓN GENERAL E INVENTARIO
+	# -------------------------------------------------------------------------
+	def tab1_init(self):
+		contenedor = tk.Frame(self.tab1, bg="#f8fafc")
+		contenedor.pack(fill="both", expand=True, padx=8, pady=8)
 
+		# 1. Card Superior: Toolbar de búsqueda y acciones
+		card_top = ttk.LabelFrame(contenedor, text=" ⚡ Búsqueda y Acciones del Vehículo ", style="Vehiculos.TLabelframe", padding=8)
+		card_top.pack(fill="x", pady=(0, 8))
 
-        self.l13 = ttk.Label(self.frame1, text="Color").grid(row=1, column=4, padx=5, pady=1, sticky='ew')
-        self.l14 = ttk.Label(self.frame1, text="Combustible").grid(row=2, column=4, padx=5, pady=1, sticky='ew')
-        self.l15 = ttk.Label(self.frame1, text="Transmisión").grid(row=3, column=4, padx=5, pady=1, sticky='ew')
-        self.l16 = ttk.Label(self.frame1, text="Cilindrada").grid(row=4, column=4, padx=5, pady=1, sticky='ew')
-        self.l17 = ttk.Label(self.frame1, text="Kilometraje").grid(row=5, column=4, padx=5, pady=1, sticky='ew')
-        self.l18 = ttk.Label(self.frame1, text="N° de tarjeta de\nidentificación vehícular").grid(row=6, column=4, padx=5, pady=1, sticky='ew')
+		# Fila de acciones principales
+		ttk.Label(card_top, text="Código Patrimonial / Interno:", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, padx=(4, 6), pady=4, sticky="w")
+		self.etrCod = ttk.Entry(card_top, textvariable=self.codi, width=18, font=("Segoe UI", 9))
+		self.etrCod.grid(row=0, column=1, padx=(0, 6), pady=4, sticky="w")
+		self.etrCod.bind("<Return>", lambda _e: self.buscar_codigo(self.codi.get()))
 
-        self.e13 = ttk.Entry(self.frame1, textvariable=self.v[12]).grid(row=1, column=5, padx=5, pady=1, sticky='ew')
-        self.e14 = ttk.Entry(self.frame1, textvariable=self.v[13]).grid(row=2, column=5, padx=5, pady=1, sticky='ew')
-        self.e15 = ttk.Entry(self.frame1, textvariable=self.v[14]).grid(row=3, column=5, padx=5, pady=1, sticky='ew')
-        self.e16 = ttk.Entry(self.frame1, textvariable=self.v[15]).grid(row=4, column=5, padx=5, pady=1, sticky='ew')
-        self.e17 = ttk.Entry(self.frame1, textvariable=self.v[16]).grid(row=5, column=5, padx=5, pady=1, sticky='ew')
-        self.e18 = ttk.Entry(self.frame1, textvariable=self.v[17]).grid(row=6, column=5, padx=5, pady=1, sticky='ew')
+		btnBus = ttk.Button(card_top, text="🔍 Buscar", command=lambda: self.buscar_codigo(self.codi.get()))
+		btnBus.grid(row=0, column=2, padx=4, pady=4)
 
-        self.crit = tk.StringVar()
-        self.camp = tk.StringVar()
+		btnAct = ttk.Button(card_top, text="💾 Guardar Cambios", command=self.actualizar)
+		btnAct.grid(row=0, column=3, padx=4, pady=4)
 
-        lblCri = ttk.Label(self.frame1, text="Criterio").grid(row=7, column=0, padx=5, pady=1, sticky='ew')
-            
-            # Entrys
-        etrCrit = ttk.Entry(self.frame1, textvariable=self.camp).grid(row=7, column=2, padx=5, pady=1, sticky='ew')
-                # Buttons
-        btnCrit = ttk.Button(self.frame1, text="Buscar", command=lambda:self.filtrar()).grid(row=7, column=3, padx=5, pady=1, sticky='ew')
+		btnPdf = ttk.Button(card_top, text="📄 Generar Ficha Vehicular", command=self.generar_ficha)
+		btnPdf.grid(row=0, column=4, padx=4, pady=4)
 
-        btnDesf = ttk.Button(self.frame1, text="...", width=3, command=lambda:self.mostra_datos()).grid(row=7, column=4, padx=5, pady=1, sticky='w')
+		btnLimpiar = ttk.Button(card_top, text="🧹 Limpiar", command=self.limpiar_campos)
+		btnLimpiar.grid(row=0, column=5, padx=4, pady=4)
 
-    def generar_ficha(self):
-        try:
-            file_path = filedialog.askdirectory(initialdir='report_actas/fichas_vehiculares/')
-            if file_path:
-                iniciar_reporte(self.codi.get(), file_path)
-                mb.showinfo(message="La Ficha se gereró con exito", title='Acontar S.A.C.')
-                self.focus_set()
-        except Exception as e:
-            print(str(e))
-            mb.showerror(message=f"Ocurrió un error al generar la ficha, Error {str(e)}", title='¡Atención!')
-            self.focus_set()
+		# Separador
+		ttk.Separator(card_top, orient="vertical").grid(row=0, column=6, sticky="ns", padx=10, pady=2)
 
-    def actualizar(self):
-        data = []        
-        for i in range(18):
-            data.append(self.v[i].get())
-        actualizar_vehiculo(self.codi.get(), data)
-        for item in self.tree.get_children():
-                self.tree.delete(item)
+		# Sección de filtro en la tabla
+		ttk.Label(card_top, text="Filtrar por:").grid(row=0, column=7, padx=(4, 4), pady=4, sticky="w")
 
-        r = rep_vehiculos()
-        for cell, contact in enumerate(r, 1):
-            b = list(contact)
-            b.insert(0, str(cell))
-            self.tree.insert('', tk.END, values=b)
+		self.lista_columnas = [
+			'Item', 'Cod Interno', 'Acta', 'Ubicación', 'Entidad', 'Cod Patrimonial', 'Denominación', 
+			'Nro de Placa', 'Carroceria', 'Marca', 'Modelo', 'Categoria', 'Nro Chasis', 'Nro de Ejes', 
+			'Nro de Motor', 'Nro de Serie', 'Año Fabricación', 'Color', 'Combustible', 'Transmisión', 
+			'Cilindrada', 'Kilometraje', 'Nro Tarjeta Vehicular'
+		]
 
-    def buscar_codigo(self, buscar):
-        k = selec_vehiculos_tab1(buscar)
-        # print(k)
-        for i in range(18):
-            self.v[i].set(k[0][i])
+		self.cbxCri = ttk.Combobox(card_top, textvariable=self.crit, values=self.lista_columnas, state="readonly", width=16)
+		self.cbxCri.grid(row=0, column=8, padx=4, pady=4)
 
-    def tree_view(self):
-            ttk.Style().configure('Treeview.Heading', font=('Arial', 10), padding=(5, 5, 5, 15))
+		self.etrCrit = ttk.Entry(card_top, textvariable=self.camp, width=16)
+		self.etrCrit.grid(row=0, column=9, padx=4, pady=4)
+		self.etrCrit.bind("<Return>", lambda _e: self.filtrar())
 
-            self.lista = ['Item', 'Cod\nInterno', 'Acta', 'Ubicación','Entidad', 'Cod\nPatrimonial', 'Denominación', 'Nro de Placa', 'Carroceria', 'Marca',
-                'Modelo', 'Categoria', 'Nro Chasis', 'Nro de Ejes', 'Nro de Motor', 'Nro de Serie', 'Año\nFabricación',
-                'Color', 'Combustible', 'Transmición', 'Cilindrada', 'Kilometraje', 'Nro de tarjeta\nVehicular']
-            self.cbxCri = ttk.Combobox(self.frame1, textvariable=self.crit, values=self.lista, state="readonly").grid(row=7, column=1, padx=5, pady=1, sticky='ew')
-            cab = []
-            for i in range(1, int(len(self.lista)+1)):
-                cab.append(i)
+		btnFiltrar = ttk.Button(card_top, text="🔎 Filtrar", command=self.filtrar)
+		btnFiltrar.grid(row=0, column=10, padx=4, pady=4)
 
-            self.tree = ttk.Treeview(self.frame2, height=25, columns=cab, show='headings')
+		btnTodos = ttk.Button(card_top, text="🔄 Ver Todos", command=self.mostra_datos)
+		btnTodos.grid(row=0, column=11, padx=(4, 6), pady=4)
 
-            for i, header in enumerate(self.lista):
-                self.tree.heading(i+1, text=header, anchor='center')
-                self.tree.column(i+1, width=100, stretch=False)
-            
-            self.tree.grid(row=0, column=0, padx=5, pady=5, sticky='nsew')
-            scrollbarV = ttk.Scrollbar(self.frame2, orient=tk.VERTICAL, command=self.tree.yview)
-            scrollbarH = ttk.Scrollbar(self.frame2, orient=tk.HORIZONTAL, command=self.tree.xview)
-            self.tree.configure(yscroll=scrollbarV.set)
-            self.tree.configure(xscroll=scrollbarH.set)
-            scrollbarV.grid(column=1, row=0, sticky='ns')
-            scrollbarH.grid(column=0, row=1, sticky='ew')
-    
-    def mostra_datos(self):
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-        r = rep_vehiculos()
-        for cell, contact in enumerate(r, 1):
-            b = list(contact)
-            b.insert(0, str(cell))
-            self.tree.insert('', tk.END, values=b)
+		# 2. Card Media: Formulario en 3 columnas estilizadas
+		card_form = ttk.LabelFrame(contenedor, text=" 📋 Especificaciones Técnicas del Vehículo ", style="Vehiculos.TLabelframe", padding=8)
+		card_form.pack(fill="x", pady=(0, 8))
 
-    def tab2_(self):
-        self.frameU = tk.Frame(self.tab2, bg="black")
-        self.frameU.pack(fill='both', expand=True)
+		# Columna 1
+		ttk.Label(card_form, text="Entidad:").grid(row=0, column=0, padx=4, pady=2, sticky="w")
+		ttk.Entry(card_form, textvariable=self.v[0], width=20).grid(row=0, column=1, padx=4, pady=2, sticky="ew")
 
-        self.frame1 = tk.Frame(self.frameU, bg='red')
-        self.frame1.pack(fill='x', side='top')
+		ttk.Label(card_form, text="Denominación:").grid(row=1, column=0, padx=4, pady=2, sticky="w")
+		ttk.Entry(card_form, textvariable=self.v[1], width=20).grid(row=1, column=1, padx=4, pady=2, sticky="ew")
 
-        self.frame2 = tk.Frame(self.frameU, bg='blue')
-        self.frame2.pack(fill='both', side='bottom', expand=True)
-        
-        self.frame2.rowconfigure(0, weight=1)
-        self.frame2.columnconfigure(0, weight=1)
+		ttk.Label(card_form, text="N° Placa:").grid(row=2, column=0, padx=4, pady=2, sticky="w")
+		ttk.Entry(card_form, textvariable=self.v[2], width=20).grid(row=2, column=1, padx=4, pady=2, sticky="ew")
 
-        self.widgets_tab2()
+		ttk.Label(card_form, text="Carrocería:").grid(row=3, column=0, padx=4, pady=2, sticky="w")
+		ttk.Entry(card_form, textvariable=self.v[3], width=20).grid(row=3, column=1, padx=4, pady=2, sticky="ew")
 
-    def widgets_tab2(self):
-        var = tk.StringVar()
+		ttk.Label(card_form, text="Marca:").grid(row=4, column=0, padx=4, pady=2, sticky="w")
+		ttk.Entry(card_form, textvariable=self.v[4], width=20).grid(row=4, column=1, padx=4, pady=2, sticky="ew")
 
-        lbl00 = ttk.Label(self.frame1, text="Código Patrimonial o interno").grid(row=0, column=0, padx=1, pady=3, sticky='ew')
-        etr00 = ttk.Entry(self.frame1, textvariable=var).grid(row=0, column=1, padx=1, pady=3, sticky='ew')
-        btn00 = ttk.Button(self.frame1,text='Buscar', command=lambda:mostrar()).grid(row=0, column=2, padx=1, pady=3, sticky='ew')
-        btn00 = ttk.Button(self.frame1,text='Registrar', command=lambda:registrar()).grid(row=0, column=3, padx=1, pady=3, sticky='ew')
-        btn00 = ttk.Button(self.frame1,text='Actualizar').grid(row=0, column=4, padx=1, pady=3, sticky='ew')
-        
-        canvas = tk.Canvas(self.frame2)
-        canvas.grid(row=0, column=0, sticky="nsew")
+		ttk.Label(card_form, text="Modelo:").grid(row=5, column=0, padx=4, pady=2, sticky="w")
+		ttk.Entry(card_form, textvariable=self.v[5], width=20).grid(row=5, column=1, padx=4, pady=2, sticky="ew")
 
-        scrollbar = ttk.Scrollbar(self.frame2, orient=tk.VERTICAL, command=canvas.yview)
-        scrollbar.grid(row=0, column=1, sticky="ns")
+		# Columna 2
+		ttk.Label(card_form, text="Categoría:").grid(row=0, column=2, padx=(12, 4), pady=2, sticky="w")
+		ttk.Entry(card_form, textvariable=self.v[6], width=20).grid(row=0, column=3, padx=4, pady=2, sticky="ew")
 
-        canvas.config(yscrollcommand=scrollbar.set)
+		ttk.Label(card_form, text="N° Chasis (VIN):").grid(row=1, column=2, padx=(12, 4), pady=2, sticky="w")
+		ttk.Entry(card_form, textvariable=self.v[7], width=20).grid(row=1, column=3, padx=4, pady=2, sticky="ew")
 
-        inner_frame = tk.Frame(canvas, bg='white')
-        inner_frame.pack(fill='both', expand=True)
-        inner_frame.rowconfigure(0, weight=1)
-        inner_frame.columnconfigure(0, weight=1)
+		ttk.Label(card_form, text="N° de Ejes:").grid(row=2, column=2, padx=(12, 4), pady=2, sticky="w")
+		ttk.Entry(card_form, textvariable=self.v[8], width=20).grid(row=2, column=3, padx=4, pady=2, sticky="ew")
 
-        canvas.create_window((0, 0), window=inner_frame, anchor='nw')
+		ttk.Label(card_form, text="N° de Motor:").grid(row=3, column=2, padx=(12, 4), pady=2, sticky="w")
+		ttk.Entry(card_form, textvariable=self.v[9], width=20).grid(row=3, column=3, padx=4, pady=2, sticky="ew")
 
-        canvas.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+		ttk.Label(card_form, text="N° de Serie:").grid(row=4, column=2, padx=(12, 4), pady=2, sticky="w")
+		ttk.Entry(card_form, textvariable=self.v[10], width=20).grid(row=4, column=3, padx=4, pady=2, sticky="ew")
 
-        canvas.config(scrollregion=canvas.bbox('all'), bg='white')
-        
-        # Crear los widgets
-        lbl01 = ttk.Label(inner_frame, text='1. SISTEMA DE MOTOR\n-Cilindros, -Carburador/carter, -Distribuidor/bomba de inyección, -Bomba de gasolina\n-Purificador de aire')
-        lbl02 = ttk.Label(inner_frame, text='2. SISTEMA DE FRENOS\n-Bomba de frenos, -Zapatas y tambores, -Discos y pastillas')
-        lbl03 = ttk.Label(inner_frame, text='3. SISTEMA DE REFRIGERACIÓN\nRadiador Ventilador Bomba de agua')
-        lbl04 = ttk.Label(inner_frame, text='4. SISTEMA ELÉCTRICO\n-Motor de arranque -Bateria, -Alternador, -Bobina, -Relay de alternador, -Faros delanteros\n-Direcionales delanteros, -Luces posteriores, -Direcionales posteriores, -Auto radio\n-Parlantes, -Claxon, -Circuito de luces (faros, cableados)')
-        lbl05 = ttk.Label(inner_frame, text='5. SISTEMA DE TRANSMICIÓN\n-Caja de cambios, -Bomba de embrague, -Caja de transferencia, -Diferencial trasero\n-Diferencial delantero(4x4)')
-        lbl06 = ttk.Label(inner_frame, text='6. SISTEMA DE DIRECCIÓN\n-Volante, -Caña de dirección, -Cremallera, -Rótulas')
-        
-        txt01 = tk.Text(inner_frame, height=6, width=40)
-        txt02 = tk.Text(inner_frame, height=6, width=40)
-        txt03 = tk.Text(inner_frame, height=6, width=40)
-        txt04 = tk.Text(inner_frame, height=6, width=40)
-        txt05 = tk.Text(inner_frame, height=6, width=40)
-        txt06 = tk.Text(inner_frame, height=6, width=40)
+		ttk.Label(card_form, text="Año Fabricación:").grid(row=5, column=2, padx=(12, 4), pady=2, sticky="w")
+		ttk.Entry(card_form, textvariable=self.v[11], width=20).grid(row=5, column=3, padx=4, pady=2, sticky="ew")
 
-        lbl07 = ttk.Label(inner_frame, text='7. SISTEMA DE SUSPENSIÓN\nAmortiguadores/muelles, -Barra de torsión, -Barra estabilizadora, -Llantas')
-        lbl08 = ttk.Label(inner_frame, text='8. CARROCERÍA\n-Capot del motor, -Capot de maletera, -Parachoques delantero, -Parachoques posterior\n-Lunas laterales, -Lunas cortaviento, -Parabrisas delantero, -Parabrisas posterior\n-Tanque de combustible, -Puertas, -Asientos')
-        lbl09 = ttk.Label(inner_frame, text='9. ACCESORIOS\n-Aire acondicionado, -Alarma, -Plumillas, -Espejos, -Cinturones de seguridad, -Antena')
-        lbl10 = ttk.Label(inner_frame, text='10. OTRAS CARACTERÍSTICAS RELEVANTES\n')
-        lbl11 = ttk.Label(inner_frame, text='11. APRECIACIÓN TÉCNICA GENERAL\n')
-        
-        txt07 = tk.Text(inner_frame, height=6, width=40)
-        txt08 = tk.Text(inner_frame, height=6, width=40)
-        txt09 = tk.Text(inner_frame, height=6, width=40)
-        txt10 = tk.Text(inner_frame, height=6, width=40)
-        txt11 = tk.Text(inner_frame, height=6, width=40)
+		# Columna 3
+		ttk.Label(card_form, text="Color:").grid(row=0, column=4, padx=(12, 4), pady=2, sticky="w")
+		ttk.Entry(card_form, textvariable=self.v[12], width=20).grid(row=0, column=5, padx=4, pady=2, sticky="ew")
 
-        # Posicionar los widgets en la cuadrícula
-        lbl01.grid(row=0, column=0, sticky='ew')
-        txt01.grid(row=1, column=0, padx=10, sticky='ew')
-        lbl03.grid(row=2, column=0, sticky='ew')
-        txt03.grid(row=3, column=0, padx=10, sticky='ew')
-        lbl05.grid(row=4, column=0, sticky='ew')
-        txt05.grid(row=5, column=0, padx=10, sticky='ew')
-        lbl07.grid(row=6, column=0, sticky='ew')
-        txt07.grid(row=7, column=0, padx=10, sticky='ew')
-        lbl09.grid(row=8, column=0, sticky='ew')
-        txt09.grid(row=9, column=0, padx=10, sticky='ew')
-        lbl11.grid(row=10, column=0, sticky='ew')
-        txt11.grid(row=11, column=0, padx=10, sticky='ew')
+		ttk.Label(card_form, text="Combustible:").grid(row=1, column=4, padx=(12, 4), pady=2, sticky="w")
+		ttk.Entry(card_form, textvariable=self.v[13], width=20).grid(row=1, column=5, padx=4, pady=2, sticky="ew")
 
+		ttk.Label(card_form, text="Transmisión:").grid(row=2, column=4, padx=(12, 4), pady=2, sticky="w")
+		ttk.Entry(card_form, textvariable=self.v[14], width=20).grid(row=2, column=5, padx=4, pady=2, sticky="ew")
 
-        lbl02.grid(row=0, column=2, sticky='ew')
-        txt02.grid(row=1, column=2, padx=10, sticky='ew')
-        lbl04.grid(row=2, column=2, sticky='ew')
-        txt04.grid(row=3, column=2, padx=10, sticky='ew')
-        lbl06.grid(row=4, column=2, sticky='ew')
-        txt06.grid(row=5, column=2, padx=10, sticky='ew')
-        lbl08.grid(row=6, column=2, sticky='ew')
-        txt08.grid(row=7, column=2, padx=10, sticky='ew')
-        lbl10.grid(row=8, column=2, sticky='ew')
-        txt10.grid(row=9, column=2, padx=10, sticky='ew')
-        
-        
-        texts01 = [txt01, txt03, txt05, txt07, txt09, txt11]
+		ttk.Label(card_form, text="Cilindrada:").grid(row=3, column=4, padx=(12, 4), pady=2, sticky="w")
+		ttk.Entry(card_form, textvariable=self.v[15], width=20).grid(row=3, column=5, padx=4, pady=2, sticky="ew")
 
-        for i, text in enumerate(texts01):
-            row = i * 2 + 1
-            scroll = ttk.Scrollbar(inner_frame, command=text.yview)
-            scroll.grid(row=row, column=1, sticky='ns')
-            text.configure(yscrollcommand=scroll.set, font=('Arial', 9), bg='white', relief='solid')
+		ttk.Label(card_form, text="Kilometraje:").grid(row=4, column=4, padx=(12, 4), pady=2, sticky="w")
+		ttk.Entry(card_form, textvariable=self.v[16], width=20).grid(row=4, column=5, padx=4, pady=2, sticky="ew")
 
-        texts02 = [txt02, txt04, txt06, txt08, txt10]
+		ttk.Label(card_form, text="N° Tarjeta Vehicular:").grid(row=5, column=4, padx=(12, 4), pady=2, sticky="w")
+		ttk.Entry(card_form, textvariable=self.v[17], width=20).grid(row=5, column=5, padx=4, pady=2, sticky="ew")
 
-        for i, text in enumerate(texts02):
-            row = i * 2 + 1
-            scroll = ttk.Scrollbar(inner_frame, command=text.yview)
-            scroll.grid(row=row, column=3, sticky='ns')
-            text.configure(yscrollcommand=scroll.set, font=('Arial', 9), bg='white', relief='solid')
-        # self.txtNota.configure(font=('Arial', 9), bg='white', relief='solid')
-        
-        inner_frame.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
-        # inner_frame.pack(fill='both', expand=True)
+		card_form.columnconfigure(1, weight=1)
+		card_form.columnconfigure(3, weight=1)
+		card_form.columnconfigure(5, weight=1)
 
-        
-        def registrar():
-            try:
-                var01 = txt01.get('1.0', 'end')
-                var02 = txt02.get('1.0', 'end')
-                var03 = txt03.get('1.0', 'end')
-                var04 = txt04.get('1.0', 'end')
-                var05 = txt05.get('1.0', 'end')
-                var06 = txt06.get('1.0', 'end')
-                var07 = txt07.get('1.0', 'end')
-                var08 = txt08.get('1.0', 'end')
-                var09 = txt09.get('1.0', 'end')
-                var10 = txt10.get('1.0', 'end')
-                var11 = txt11.get('1.0', 'end')
+		# 3. Card Inferior: Directorio de Vehículos
+		card_tree = ttk.LabelFrame(contenedor, text=" 📋 Directorio de Vehículos Registrados ", style="Vehiculos.TLabelframe", padding=8)
+		card_tree.pack(fill="both", expand=True)
 
-                data = [var01, var02, var03, var04, var05, var06, var07, var08, var09, var10, var11]
-                # print(var.get())
-                registrar_vehiculo(var.get(), data)
-                mb.showinfo(message='Se registro correctamente', title='Acontar S.A.C.')
-                self.focus_set()
-            except Exception as e:
-                mb.showerror(message=f'Error al registrar, Error {str(e)}')
-                self.focus_set()
-                print(e)
+		cab = list(range(1, len(self.lista_columnas) + 1))
+		self.tree = ttk.Treeview(card_tree, columns=cab, show="headings", style="Vehiculos.Treeview")
 
-        def mostrar():
-            j = selec_vehiculos(var.get())
-            # print(j)
+		for i, header in enumerate(self.lista_columnas):
+			self.tree.heading(i + 1, text=header, anchor="center")
+			self.tree.column(i + 1, width=105, stretch=False)
 
-            widgets = [txt01, txt02, txt03, txt04, txt05, txt06, txt07, txt08, txt09, txt10, txt11]
-            datos = j[0]
-            for widget, dato in zip(widgets, datos):
-                widget.delete('1.0', 'end')
-                widget.insert('end', dato)
+		# Anchos optimizados para columnas comunes
+		self.tree.column(1, width=45, anchor="center")   # Item
+		self.tree.column(2, width=90, anchor="center")   # CodInt
+		self.tree.column(3, width=55, anchor="center")   # Acta
+		self.tree.column(4, width=180, anchor="w")       # Ubicación
+		self.tree.column(5, width=140, anchor="w")       # Entidad
+		self.tree.column(6, width=120, anchor="center")  # CodPat
+		self.tree.column(7, width=220, anchor="w")       # Denominación
+		self.tree.column(8, width=95, anchor="center")   # Placa
 
-    def mostrar_datos_(self, *args):
-        fila = self.tree.focus()
-        vnb = self.tree.item(fila)['values']
-        self.j = vnb[1]
-        self.codi.set(self.j)
-        self.buscar_codigo(self.j)
+		self.tree.tag_configure("odd",  background="#ffffff")
+		self.tree.tag_configure("even", background="#f8fafc")
 
-    def mostrar_detalles_(self):
-        fila = self.tree.focus()
-        vnb = self.tree.item(fila)['values']
-        self.j = vnb[1]
-        self.codi.set(self.j)
-        self.buscar_codigo(self.j)
-        ventana = Window_detalles(codigo=self.j)
-        ventana.wait_window(ventana)
-        self.focus_set()
-        self.after(0, self.mostra_datos())
+		scrollbarV = ttk.Scrollbar(card_tree, orient=tk.VERTICAL, command=self.tree.yview)
+		scrollbarH = ttk.Scrollbar(card_tree, orient=tk.HORIZONTAL, command=self.tree.xview)
+		self.tree.configure(yscroll=scrollbarV.set, xscroll=scrollbarH.set)
 
-    def filtrar(self):
-        columna = self.crit.get()
-        valor = self.camp.get()
-        fila = 1
+		self.tree.grid(row=0, column=0, sticky="nsew")
+		scrollbarV.grid(row=0, column=1, sticky="ns")
+		scrollbarH.grid(row=1, column=0, sticky="ew")
 
-        # Crear una lista con las filas que coinciden con el criterio de búsqueda
-        filas_coinciden = []
-        for item in self.tree.get_children():
-            valores = self.tree.item(item)["values"]
-            if valor.lower() in str(valores[self.lista.index(columna)]).lower():
-                filas_coinciden.append((fila,) + tuple(valores[1:]))
-                fila += 1
-            else:
-                self.tree.delete(item)
+		card_tree.rowconfigure(0, weight=1)
+		card_tree.columnconfigure(0, weight=1)
 
-        # Limpiar el Treeview
-        for item in self.tree.get_children():
-            self.tree.delete(item)
+		self.tree.bind("<Double-Button-1>", self.mostrar_datos_)
+		self.tree.bind("<Triple-Button-1>", self.mostrar_detalles_)
 
-        # Insertar las filas que coinciden con la búsqueda con la nueva numeración
-        for valores in filas_coinciden:
-            self.tree.insert("", "end", text="", values=valores)
+		# Barra Footer
+		frame_footer = tk.Frame(contenedor, bg="#f8fafc")
+		frame_footer.pack(fill="x", pady=(8, 0))
+
+		frame_chip = tk.Frame(frame_footer, bg="#eff6ff", bd=1, relief="solid")
+		frame_chip.pack(side="left")
+		self.lbl_total = tk.Label(
+			frame_chip,
+			text="🚗  0 vehículos",
+			bg="#eff6ff",
+			fg="#1d4ed8",
+			font=("Segoe UI", 9, "bold"),
+			padx=10,
+			pady=4
+		)
+		self.lbl_total.pack()
+
+		lbl_tip = tk.Label(
+			frame_footer,
+			text="💡 Doble clic en una fila para cargar datos | Triple clic para ver ficha detallada del bien",
+			bg="#f8fafc",
+			fg="#64748b",
+			font=("Segoe UI", 8, "italic")
+		)
+		lbl_tip.pack(side="left", padx=12)
+
+	# -------------------------------------------------------------------------
+	# PESTAÑA 2: INSPECCIÓN TÉCNICA POR SISTEMAS
+	# -------------------------------------------------------------------------
+	def tab2_init(self):
+		contenedor = tk.Frame(self.tab2, bg="#f8fafc")
+		contenedor.pack(fill="both", expand=True, padx=8, pady=8)
+
+		# Barra superior de la Ficha Técnica
+		card_top_tec = ttk.LabelFrame(contenedor, text=" 🔍 Identificación del Vehículo a Inspeccionar ", style="Vehiculos.TLabelframe", padding=8)
+		card_top_tec.pack(fill="x", pady=(0, 8))
+
+		ttk.Label(card_top_tec, text="Código Patrimonial o Interno:", font=("Segoe UI", 9, "bold")).pack(side="left", padx=(4, 6))
+		self.etr_tec_cod = ttk.Entry(card_top_tec, textvariable=self.cod_tec, width=20, font=("Segoe UI", 9))
+		self.etr_tec_cod.pack(side="left", padx=(0, 8))
+		self.etr_tec_cod.bind("<Return>", lambda _e: self.cargar_datos_tecnicos())
+
+		btnCargarTec = ttk.Button(card_top_tec, text="🔍 Cargar Sistemas", command=self.cargar_datos_tecnicos)
+		btnCargarTec.pack(side="left", padx=4)
+
+		btnGuardarTec = ttk.Button(card_top_tec, text="💾 Guardar Ficha Técnica", command=self.guardar_datos_tecnicos)
+		btnGuardarTec.pack(side="left", padx=4)
+
+		btnLimpiarTec = ttk.Button(card_top_tec, text="🧹 Limpiar Campos", command=self.limpiar_tecnicos)
+		btnLimpiarTec.pack(side="left", padx=4)
+
+		# Área con Scroll para los 11 sistemas
+		card_scroll = ttk.LabelFrame(contenedor, text=" 🛠️ Detalle de los Sistemas y Componentes Mecánicos ", style="Vehiculos.TLabelframe", padding=6)
+		card_scroll.pack(fill="both", expand=True)
+
+		canvas = tk.Canvas(card_scroll, bg="#f8fafc", highlightthickness=0)
+		scrollbar = ttk.Scrollbar(card_scroll, orient=tk.VERTICAL, command=canvas.yview)
+		canvas.configure(yscrollcommand=scrollbar.set)
+
+		scrollbar.pack(side="right", fill="y")
+		canvas.pack(side="left", fill="both", expand=True)
+
+		inner_frame = tk.Frame(canvas, bg="#f8fafc")
+		canvas_window = canvas.create_window((0, 0), window=inner_frame, anchor="nw")
+
+		def _configurar_canvas(event):
+			canvas.itemconfig(canvas_window, width=event.width)
+			canvas.configure(scrollregion=canvas.bbox("all"))
+
+		canvas.bind("<Configure>", _configurar_canvas)
+		inner_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+
+		# Configuración de los 11 sistemas
+		sistemas = [
+			("1. SISTEMA DE MOTOR", "Cilindros, Carburador/cárter, Distribuidor/bomba de inyección, Bomba de gasolina, Purificador de aire"),
+			("2. SISTEMA DE FRENOS", "Bomba de frenos, Zapatas y tambores, Discos y pastillas, Líquido de freno"),
+			("3. SISTEMA DE REFRIGERACIÓN", "Radiador, Ventilador, Bomba de agua, Mangueras, Termostato"),
+			("4. SISTEMA ELÉCTRICO", "Motor de arranque, Batería, Alternador, Bobina, Faros, Luces y cableados"),
+			("5. SISTEMA DE TRANSMISIÓN", "Caja de cambios, Bomba de embrague, Caja de transferencia, Diferencial"),
+			("6. SISTEMA DE DIRECCIÓN", "Volante, Caña de dirección, Cremallera, Rótulas, Terminales"),
+			("7. SISTEMA DE SUSPENSIÓN", "Amortiguadores/muelles, Barra de torsión, Barra estabilizadora, Llantas"),
+			("8. CARROCERÍA", "Capot, Maletera, Parachoques, Lunas, Parabrisas, Puertas, Asientos"),
+			("9. ACCESORIOS", "Aire acondicionado, Alarma, Plumillas, Espejos, Cinturones, Antena"),
+			("10. OTRAS CARACTERÍSTICAS", "Otras especificaciones relevantes del estado y componentes"),
+			("11. APRECIACIÓN TÉCNICA GENERAL", "Conclusión general sobre el estado operativo del vehículo")
+		]
+
+		self.txt_tecnicos = []
+		for idx, (titulo, subtitulo) in enumerate(sistemas):
+			col = idx % 2
+			row = idx // 2
+
+			card_sys = tk.Frame(inner_frame, bg="#ffffff", bd=1, relief="solid", padx=8, pady=6)
+			card_sys.grid(row=row, column=col, padx=6, pady=6, sticky="nsew")
+
+			lbl_tit = tk.Label(card_sys, text=titulo, font=("Segoe UI", 9, "bold"), bg="#ffffff", fg="#1e293b", anchor="w")
+			lbl_tit.pack(fill="x")
+
+			lbl_sub = tk.Label(card_sys, text=subtitulo, font=("Segoe UI", 8, "italic"), bg="#ffffff", fg="#64748b", anchor="w")
+			lbl_sub.pack(fill="x", pady=(0, 4))
+
+			txt = tk.Text(card_sys, height=4, font=("Segoe UI", 9), relief="solid", bd=1, bg="#ffffff")
+			txt.pack(fill="both", expand=True)
+
+			self.txt_tecnicos.append(txt)
+
+		inner_frame.columnconfigure(0, weight=1)
+		inner_frame.columnconfigure(1, weight=1)
+
+	# -------------------------------------------------------------------------
+	# LÓGICA DE NEGOCIO (TAB 1)
+	# -------------------------------------------------------------------------
+	def buscar_codigo(self, buscar):
+		codigo = str(buscar).strip()
+		if not codigo:
+			mb.showwarning(title="Atención", message="Ingrese un código patrimonial o interno.", parent=self)
+			return
+
+		try:
+			k = selec_vehiculos_tab1(codigo)
+			if k and len(k) > 0 and len(k[0]) >= 18:
+				for i in range(18):
+					val = k[0][i]
+					self.v[i].set(str(val) if val is not None else "")
+				# Sincronizar también con la pestaña técnica
+				self.cod_tec.set(codigo)
+			else:
+				mb.showinfo(title="No encontrado", message=f"No se encontraron datos para el vehículo con código '{codigo}'.", parent=self)
+		except Exception as e:
+			mb.showerror(title="Error al buscar", message=f"Ocurrió un error:\n{e}", parent=self)
+
+	def actualizar(self):
+		codigo = self.codi.get().strip()
+		if not codigo:
+			mb.showwarning(title="Atención", message="Ingrese el código del vehículo a actualizar.", parent=self)
+			return
+
+		data = [self.v[i].get().strip() for i in range(18)]
+		try:
+			actualizar_vehiculo(codigo, data)
+			self.mostra_datos()
+			mb.showinfo(title="Acontar S.A.C.", message="Datos del vehículo actualizados correctamente.", parent=self)
+			self.focus_set()
+		except Exception as e:
+			mb.showerror(title="Error", message=f"Ocurrió un error al actualizar:\n{e}", parent=self)
+			self.focus_set()
+
+	def generar_ficha(self):
+		codigo = self.codi.get().strip()
+		if not codigo:
+			mb.showwarning(title="Atención", message="Seleccione o busque un vehículo para generar su ficha.", parent=self)
+			return
+
+		try:
+			file_path = filedialog.askdirectory(initialdir='report_actas/fichas_vehiculares/', title="Seleccionar carpeta de destino")
+			if file_path:
+				iniciar_reporte(codigo, file_path)
+				mb.showinfo(title='Acontar S.A.C.', message="La Ficha Vehicular se generó con éxito.", parent=self)
+				self.focus_set()
+		except Exception as e:
+			mb.showerror(title='¡Atención!', message=f"Ocurrió un error al generar la ficha:\n{e}", parent=self)
+			self.focus_set()
+
+	def mostra_datos(self):
+		for item in self.tree.get_children():
+			self.tree.delete(item)
+
+		try:
+			r = rep_vehiculos()
+			for cell, contact in enumerate(r or [], 1):
+				b = list(contact)
+				b.insert(0, str(cell))
+				tag = "odd" if cell % 2 == 1 else "even"
+				self.tree.insert("", tk.END, values=b, tags=(tag,))
+			n = len(r or [])
+			self.lbl_total.config(text=f"🚗  {n} {'vehículo' if n == 1 else 'vehículos'}")
+		except Exception as e:
+			print(f"Error cargando vehículos: {e}")
+
+	def mostrar_datos_(self, *args):
+		fila = self.tree.focus()
+		if not fila:
+			return
+		vnb = self.tree.item(fila).get("values", [])
+		if not vnb or len(vnb) < 2:
+			return
+
+		# Columna 1 en la tupla es CodInt, Columna 5 es CodPat
+		cod_int = str(vnb[1]) if vnb[1] is not None else ""
+		cod_pat = str(vnb[5]) if len(vnb) > 5 and vnb[5] is not None else ""
+		codigo = cod_pat or cod_int
+
+		self.codi.set(codigo)
+		self.cod_tec.set(codigo)
+		self.buscar_codigo(codigo)
+
+	def mostrar_detalles_(self, *args):
+		fila = self.tree.focus()
+		if not fila:
+			return
+		vnb = self.tree.item(fila).get("values", [])
+		if not vnb or len(vnb) < 2:
+			return
+
+		codigo = str(vnb[1])
+		self.codi.set(codigo)
+		self.buscar_codigo(codigo)
+
+		ventana = Window_detalles(codigo=codigo)
+		ventana.wait_window(ventana)
+		self.focus_set()
+		self.after(50, self.mostra_datos)
+
+	def filtrar(self):
+		columna = self.crit.get().strip()
+		valor = self.camp.get().strip().lower()
+
+		if not valor:
+			self.mostra_datos()
+			return
+
+		if columna not in self.lista_columnas:
+			columna = "Cod Patrimonial"
+
+		col_idx = self.lista_columnas.index(columna)
+
+		filas_coinciden = []
+		for item in self.tree.get_children():
+			valores = self.tree.item(item)["values"]
+			if col_idx < len(valores) and valor in str(valores[col_idx]).lower():
+				filas_coinciden.append(valores)
+
+		for item in self.tree.get_children():
+			self.tree.delete(item)
+
+		for cell, valores in enumerate(filas_coinciden, 1):
+			tag = "odd" if cell % 2 == 1 else "even"
+			v_mod = list(valores)
+			v_mod[0] = str(cell)
+			self.tree.insert("", tk.END, values=v_mod, tags=(tag,))
+
+		n = len(filas_coinciden)
+		self.lbl_total.config(text=f"🚗  {n} {'vehículo encontrado' if n == 1 else 'vehículos encontrados'}")
+
+	def limpiar_campos(self):
+		self.codi.set("")
+		for var in self.v:
+			var.set("")
+
+	# -------------------------------------------------------------------------
+	# LÓGICA DE NEGOCIO (TAB 2: FICHA TÉCNICA)
+	# -------------------------------------------------------------------------
+	def cargar_datos_tecnicos(self):
+		codigo = self.cod_tec.get().strip()
+		if not codigo:
+			mb.showwarning(title="Atención", message="Ingrese el código patrimonial o interno del vehículo.", parent=self)
+			return
+
+		try:
+			j = selec_vehiculos(codigo)
+			if j and len(j) > 0 and len(j[0]) >= 11:
+				datos = j[0]
+				for widget, dato in zip(self.txt_tecnicos, datos):
+					widget.delete("1.0", "end")
+					widget.insert("end", str(dato) if dato is not None else "")
+			else:
+				mb.showinfo(title="Sin registro previo", message=f"No se encontró ficha técnica para [{codigo}]. Puede ingresar la información ahora.", parent=self)
+		except Exception as e:
+			mb.showerror(title="Error al cargar", message=f"Ocurrió un error:\n{e}", parent=self)
+
+	def guardar_datos_tecnicos(self):
+		codigo = self.cod_tec.get().strip()
+		if not codigo:
+			mb.showwarning(title="Atención", message="Ingrese el código patrimonial o interno del vehículo.", parent=self)
+			return
+
+		try:
+			data = [txt.get("1.0", "end-1c").strip() for txt in self.txt_tecnicos]
+			registrar_vehiculo(codigo, data)
+			mb.showinfo(title="Acontar S.A.C.", message="Ficha de inspección técnica guardada exitosamente.", parent=self)
+			self.focus_set()
+		except Exception as e:
+			mb.showerror(title="Error al guardar", message=f"No se pudo guardar la ficha técnica:\n{e}", parent=self)
+			self.focus_set()
+
+	def limpiar_tecnicos(self):
+		for txt in self.txt_tecnicos:
+			txt.delete("1.0", "end")

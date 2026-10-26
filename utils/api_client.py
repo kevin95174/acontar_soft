@@ -42,6 +42,42 @@ class ApiManagerAcontarSacClient:
         self.timeout = timeout
         self.session = None
 
+    def _ensure_session(self):
+        """Garantiza que exista una sesión HTTP configurada con cabeceras JSON."""
+        if not hasattr(self, "session") or self.session is None:
+            self.session = requests.Session()
+            self.session.headers.update({
+                "Content-Type": "application/json",
+                "Accept": "application/json",
+            })
+
+    def _post_json(self, endpoint_key: str, payload: dict) -> dict:
+        """Envía una petición POST con JSON y devuelve {'status_code': int, 'data': dict}."""
+        self._ensure_session()
+        endpoint = self.ENDPOINTS.get(endpoint_key, endpoint_key)
+        url = self.base_url + endpoint
+
+        try:
+            response = self.session.post(url, json=payload, timeout=self.timeout)
+            try:
+                data = response.json()
+            except (json.JSONDecodeError, ValueError):
+                data = {
+                    "message": (
+                        f"Respuesta no válida del servidor (HTTP {response.status_code}). "
+                        f"Detalle: {response.text[:200]}"
+                    )
+                }
+            return {
+                "status_code": response.status_code,
+                "data": data,
+            }
+        except requests.exceptions.RequestException as e:
+            return {
+                "status_code": 500,
+                "data": {"message": f"Error de conexión HTTP: {e}"},
+            }
+
     def get_photo_url(self, ruta_foto: str) -> str:
         """Devuelve la URL completa para descargar o visualizar la foto desde el servidor."""
         if not ruta_foto:
@@ -63,9 +99,7 @@ class ApiManagerAcontarSacClient:
         """Envía JSON y devuelve el sobre {success, message, data} de Laravel."""
         url = self.base_url + endpoint
 
-
         print("URL:", url)
-
         print("PAYLOAD:", payload)
 
         body = json.dumps(payload or {}).encode("utf-8")
@@ -76,7 +110,7 @@ class ApiManagerAcontarSacClient:
             headers={
                 "Accept": "application/json",
                 "Content-Type": "application/json",
-                "User-Agent": "PostmanRuntime/7.55.1"
+                "User-Agent": "PostmanRuntime/7.55.1",
             },
         )
 
@@ -149,54 +183,41 @@ class ApiManagerAcontarSacClient:
             return {"status_code": 500, "data": {"message": str(e)}}
 
     def update_ubicacion_final(self, record_id: int, codigo_ubicacion_final: str, user_id: int) -> dict:
-        # 1. Garantizar que la sesión exista antes de llamar a post()
-        if not hasattr(self, 'session') or self.session is None:
-            self.session = requests.Session()
-            self.session.headers.update({
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-            })
-
-        # 🔥 2. CORRECCIÓN DE RUTA: Agregar '/api/' y usar guiones medios '-'
-        url = self.base_url + self.ENDPOINTS["update_final_location"]
-
+        """Actualiza la ubicación final inventariada de un bien en el servidor."""
         payload = {
             "id": int(record_id),
             "codigo_ubicacion_final": str(codigo_ubicacion_final),
-            "user_id": int(user_id)
+            "user_id": int(user_id),
         }
-
-        try:
-            response = self.session.post(url, json=payload, timeout=self.timeout)
-            
-            try:
-                data = response.json()
-            except (json.JSONDecodeError, ValueError):
-                # Si el servidor devolvió HTML (error 404, 500, etc.)
-                data = {
-                    "message": f"Respuesta no válida del servidor (HTTP {response.status_code}). Detalle: {response.text[:200]}"
-                }
-
-            return {
-                "status_code": response.status_code,
-                "data": data
-            }
-            
-        except requests.exceptions.RequestException as e:
-            return {
-                "status_code": 500,
-                "data": {"message": f"Error de conexión HTTP: {e}"}
-            }
+        return self._post_json("update_final_location", payload)
 
     def update_ultima_ubicacion(self, record_id: int, codigo_ubicacion_final: str, user_id: int) -> dict:
-        """Compatibilidad semántica para actualizar la ubicación final vigente.
+        """Compatibilidad semántica para actualizar la ubicación final vigente."""
+        return self.update_ubicacion_final(record_id, codigo_ubicacion_final, user_id)
 
-        El endpoint público del servidor se llama ``update_ubicacion_final``;
-        ambos nombres realizan la misma operación.
-        """
-        return self.update_ubicacion_final(
-            record_id, codigo_ubicacion_final, user_id
-        )
+    def uninventory_record(self, record_id: int, user_id: int = 1) -> dict:
+        """Des-inventaría un bien en el servidor, limpiando su ubicación final."""
+        payload = {
+            "id": int(record_id),
+            "user_id": int(user_id or 1),
+        }
+        return self._post_json("uninventory_record", payload)
+
+    def update_technical_details(self, payload: dict) -> dict:
+        """Actualiza las especificaciones técnicas (marca, modelo, serie, color, estado, etc.) de un bien."""
+        return self._post_json("update_technical_details", payload)
+
+    def create_or_update_location(self, payload: dict) -> dict:
+        """Crea o actualiza una ubicación/ficha en el servidor."""
+        return self._post_json("create_location", payload)
+
+    def create_or_update_personnel(self, payload: dict) -> dict:
+        """Crea o actualiza un registro de personal/responsable en el servidor."""
+        return self._post_json("create_personnel", payload)
+
+    def create_or_update_surplus(self, payload: dict) -> dict:
+        """Crea o actualiza un bien sobrante en el servidor."""
+        return self._post_json("create_surplus", payload)
 
     @staticmethod
     def _message_from_response(raw_response):

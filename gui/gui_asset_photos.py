@@ -10,6 +10,7 @@ from PIL import Image, ImageTk
 
 from utils.api_client import ApiManagerAcontarSacClient
 from utils.config_helper import get_config
+from utils.helpers import resource_path
 
 
 class Window_asset_photos(tk.Toplevel):
@@ -20,17 +21,14 @@ class Window_asset_photos(tk.Toplevel):
     def __init__(self, root=None):
         super().__init__(root)
         self.root = root
-        self.title("Gestión de Fotografías de Activos (asset_photos) - AcontarSoft")
-        self.geometry("1180x690")
-        self.minsize(960, 540)
+        self.title("Gestión de Fotografías de Activos — AcontarSoft")
+        self.geometry("1240x740")
+        self.minsize(980, 580)
+        self.configure(bg="#f8fafc")
 
-        # Icono
-        icon_path = os.path.join(os.path.dirname(__file__), "..", "img", "favicon.ico")
-        if os.path.exists(icon_path):
-            try:
-                self.iconbitmap(icon_path)
-            except Exception:
-                pass
+        self._cargar_icono()
+        self._centrar_ventana(1240, 740)
+        self._configurar_estilos()
 
         # Rutas de base de datos y fotos
         base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -65,6 +63,66 @@ class Window_asset_photos(tk.Toplevel):
         self._build_ui()
         self.cargar_pagina(1)
 
+    # -------------------------------------------------------------------------
+    # CONFIGURACIÓN DE VENTANA Y ESTILOS
+    # -------------------------------------------------------------------------
+    def _cargar_icono(self):
+        try:
+            self.iconbitmap(resource_path("img/favicon.ico"))
+            return
+        except Exception:
+            pass
+        icon_path = os.path.join(os.path.dirname(__file__), "..", "img", "favicon.ico")
+        if os.path.exists(icon_path):
+            try:
+                self.iconbitmap(icon_path)
+            except Exception:
+                pass
+
+    def _centrar_ventana(self, w, h):
+        self.update_idletasks()
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        x = (sw - w) // 2
+        y = (sh - h) // 2
+        self.geometry(f"{w}x{h}+{x}+{y}")
+
+    def _configurar_estilos(self):
+        style = ttk.Style(self)
+
+        # LabelFrame Card
+        style.configure("Photos.TLabelframe",
+            background="#ffffff",
+            relief="solid",
+            borderwidth=1,
+            bordercolor="#e2e8f0"
+        )
+        style.configure("Photos.TLabelframe.Label",
+            background="#ffffff",
+            foreground="#334155",
+            font=("Segoe UI", 9, "bold")
+        )
+
+        # Treeview moderno
+        style.configure("Photos.Treeview",
+            background="#ffffff",
+            fieldbackground="#ffffff",
+            foreground="#0f172a",
+            font=("Segoe UI", 9),
+            rowheight=25
+        )
+        style.configure("Photos.Treeview.Heading",
+            background="#f1f5f9",
+            foreground="#475569",
+            font=("Segoe UI", 8, "bold"),
+            relief="flat",
+            padding=(6, 6)
+        )
+        style.map("Photos.Treeview",
+            background=[("selected", "#2563eb")],
+            foreground=[("selected", "#ffffff")]
+        )
+
     def _asegurar_indices(self):
         """Crea índices en SQLite para que la paginación y búsqueda sean instantáneas."""
         try:
@@ -80,63 +138,99 @@ class Window_asset_photos(tk.Toplevel):
         except Exception:
             pass
 
+    # -------------------------------------------------------------------------
+    # CONSTRUCCIÓN DE INTERFAZ
+    # -------------------------------------------------------------------------
     def _build_ui(self):
-        # 1. Barra de Herramientas y Filtros
-        frame_top = ttk.Frame(self, padding=(10, 8))
-        frame_top.pack(fill="x")
+        contenedor = tk.Frame(self, bg="#f8fafc")
+        contenedor.pack(fill="both", expand=True, padx=12, pady=10)
 
-        ttk.Label(frame_top, text="🔍 Buscar:", font=("Helvetica", 9, "bold")).pack(side="left", padx=(0, 4))
-        
-        # Criterio de búsqueda (Por defecto Código Interno)
+        # 1. Card Superior: Barra de Herramientas y Filtros
+        card_top = ttk.LabelFrame(
+            contenedor,
+            text=" 🔎 Búsqueda, Filtros y Acciones Rápidas ",
+            style="Photos.TLabelframe",
+            padding=(10, 8)
+        )
+        card_top.pack(fill="x", pady=(0, 8))
+
+        ttk.Label(card_top, text="Criterio:", font=("Segoe UI", 9, "bold")).pack(side="left", padx=(2, 4))
+
         self.cb_criterio = ttk.Combobox(
-            frame_top, textvariable=self.search_field_var,
+            card_top, textvariable=self.search_field_var,
             values=["Cód. Interno", "Cód. Patrimonial", "Denominación", "ID Asset", "Todo"],
             state="readonly", width=14
         )
         self.cb_criterio.pack(side="left", padx=(0, 6))
         self.cb_criterio.bind("<<ComboboxSelected>>", lambda e: self.aplicar_filtros())
 
-        self.txt_search = ttk.Entry(frame_top, textvariable=self.search_var, width=22)
+        self.txt_search = ttk.Entry(card_top, textvariable=self.search_var, width=22, font=("Segoe UI", 9))
         self.txt_search.pack(side="left", padx=(0, 4))
         self.txt_search.bind("<Return>", lambda e: self.aplicar_filtros())
 
-        btn_buscar = ttk.Button(frame_top, text="Filtrar", command=self.aplicar_filtros)
+        btn_buscar = ttk.Button(card_top, text="🔍 Filtrar", command=self.aplicar_filtros)
         btn_buscar.pack(side="left", padx=(0, 4))
 
-        btn_limpiar = ttk.Button(frame_top, text="✖ Limpiar", command=self.limpiar_busqueda)
-        btn_limpiar.pack(side="left", padx=(0, 10))
+        btn_limpiar = ttk.Button(card_top, text="✖ Limpiar", command=self.limpiar_busqueda)
+        btn_limpiar.pack(side="left", padx=(0, 8))
 
-        ttk.Label(frame_top, text="Estado:").pack(side="left", padx=(0, 5))
+        ttk.Separator(card_top, orient="vertical").pack(side="left", fill="y", padx=6, pady=2)
+
+        ttk.Label(card_top, text="Sincronización:", font=("Segoe UI", 9)).pack(side="left", padx=(0, 4))
         cb_sync = ttk.Combobox(
-            frame_top, textvariable=self.filter_sync_var,
+            card_top, textvariable=self.filter_sync_var,
             values=["Todos", "Sincronizados (1)", "Pendientes (0)"],
             state="readonly", width=15
         )
-        cb_sync.pack(side="left", padx=(0, 10))
+        cb_sync.pack(side="left", padx=(0, 8))
         cb_sync.bind("<<ComboboxSelected>>", lambda e: self.aplicar_filtros())
 
-        btn_refresh = ttk.Button(frame_top, text="🔄 Refrescar", command=lambda: self.cargar_pagina(self.page_current))
-        btn_refresh.pack(side="left", padx=(0, 5))
+        ttk.Separator(card_top, orient="vertical").pack(side="left", fill="y", padx=6, pady=2)
 
-        btn_add = ttk.Button(frame_top, text="➕ Asociar Foto", command=self.dialogo_asociar_foto)
-        btn_add.pack(side="left", padx=(0, 5))
+        btn_refresh = ttk.Button(card_top, text="🔄 Refrescar", command=lambda: self.cargar_pagina(self.page_current))
+        btn_refresh.pack(side="left", padx=(0, 4))
 
-        btn_scan = ttk.Button(frame_top, text="📂 Escanear Carpeta", command=self.escanear_carpeta_local)
-        btn_scan.pack(side="left", padx=(0, 5))
+        btn_add = ttk.Button(card_top, text="➕ Asociar Foto", command=self.dialogo_asociar_foto)
+        btn_add.pack(side="left", padx=(0, 4))
 
-        self.lbl_global_count = ttk.Label(frame_top, text="Total: 0 registros", font=("Helvetica", 9, "bold"))
-        self.lbl_global_count.pack(side="right", padx=5)
+        btn_scan = ttk.Button(card_top, text="📂 Escanear Carpeta", command=self.escanear_carpeta_local)
+        btn_scan.pack(side="left", padx=(0, 4))
 
-        # 2. Panel Principal Dividido (Treeview a la izquierda, Visor a la derecha)
-        self.paned = ttk.PanedWindow(self, orient="horizontal")
-        self.paned.pack(fill="both", expand=True, padx=10, pady=(0, 5))
+        # Chip contador global a la derecha
+        frame_chip = tk.Frame(card_top, bg="#eff6ff", bd=1, relief="solid")
+        frame_chip.pack(side="right", padx=(4, 2))
+        self.lbl_global_count = tk.Label(
+            frame_chip,
+            text="📷  Total: 0 fotos",
+            bg="#eff6ff",
+            fg="#1d4ed8",
+            font=("Segoe UI", 9, "bold"),
+            padx=10,
+            pady=3
+        )
+        self.lbl_global_count.pack()
+
+        # 2. Panel Principal Dividido (Catálogo a la izquierda, Visor a la derecha)
+        self.paned = ttk.PanedWindow(contenedor, orient="horizontal")
+        self.paned.pack(fill="both", expand=True)
 
         # --- Panel Izquierdo: Lista Paginada ---
-        self.frame_left = ttk.Frame(self.paned, padding=2)
-        self.paned.add(self.frame_left, weight=1)
+        self.frame_left = ttk.LabelFrame(
+            self.paned,
+            text=" 📋 Catálogo de Fotografías Registradas ",
+            style="Photos.TLabelframe",
+            padding=6
+        )
+        self.paned.add(self.frame_left, weight=2)
 
         columns = ("id", "codigo_interno", "cod_patrimonial", "denominacion", "ruta_foto", "fecha", "sincronizado")
-        self.tree = ttk.Treeview(self.frame_left, columns=columns, show="headings", selectmode="browse")
+        self.tree = ttk.Treeview(
+            self.frame_left,
+            columns=columns,
+            show="headings",
+            selectmode="browse",
+            style="Photos.Treeview"
+        )
 
         self.tree.heading("id", text="ID")
         self.tree.heading("codigo_interno", text="Cód. Int")
@@ -149,10 +243,13 @@ class Window_asset_photos(tk.Toplevel):
         self.tree.column("id", width=50, anchor="center")
         self.tree.column("codigo_interno", width=75, anchor="center")
         self.tree.column("cod_patrimonial", width=105, anchor="center")
-        self.tree.column("denominacion", width=190, anchor="w")
+        self.tree.column("denominacion", width=195, anchor="w")
         self.tree.column("ruta_foto", width=130, anchor="w")
-        self.tree.column("fecha", width=100, anchor="center")
-        self.tree.column("sincronizado", width=60, anchor="center")
+        self.tree.column("fecha", width=105, anchor="center")
+        self.tree.column("sincronizado", width=65, anchor="center")
+
+        self.tree.tag_configure("odd", background="#ffffff")
+        self.tree.tag_configure("even", background="#f8fafc")
 
         scroll_y = ttk.Scrollbar(self.frame_left, orient="vertical", command=self.tree.yview)
         scroll_x = ttk.Scrollbar(self.frame_left, orient="horizontal", command=self.tree.xview)
@@ -169,35 +266,35 @@ class Window_asset_photos(tk.Toplevel):
         self.tree.bind("<Double-1>", lambda e: self.abrir_en_visor_sistema())
 
         # --- Barra Inferior de Paginación ---
-        frame_pagination = ttk.Frame(self.frame_left, padding=(2, 6))
-        frame_pagination.grid(row=2, column=0, columnspan=2, sticky="ew")
+        frame_pagination = tk.Frame(self.frame_left, bg="#f8fafc", bd=1, relief="solid", padx=6, pady=4)
+        frame_pagination.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(6, 0))
 
         self.btn_first = ttk.Button(frame_pagination, text="⏮", width=3, command=self.ir_primera_pagina)
         self.btn_first.pack(side="left", padx=2)
 
-        self.btn_prev = ttk.Button(frame_pagination, text="◀", width=4, command=self.pagina_anterior)
+        self.btn_prev = ttk.Button(frame_pagination, text="◀", width=3, command=self.pagina_anterior)
         self.btn_prev.pack(side="left", padx=2)
 
-        ttk.Label(frame_pagination, text="Pág.").pack(side="left", padx=(4, 2))
+        tk.Label(frame_pagination, text="Pág.", bg="#f8fafc", fg="#334155", font=("Segoe UI", 8, "bold")).pack(side="left", padx=(4, 2))
         self.etr_page = ttk.Entry(frame_pagination, textvariable=self.page_input_var, width=5, justify="center")
         self.etr_page.pack(side="left", padx=2)
         self.etr_page.bind("<Return>", lambda e: self._ir_a_pagina_escrita())
 
-        self.lbl_pages_total = ttk.Label(frame_pagination, text="de 1")
+        self.lbl_pages_total = tk.Label(frame_pagination, text="de 1", bg="#f8fafc", fg="#475569", font=("Segoe UI", 8))
         self.lbl_pages_total.pack(side="left", padx=(2, 4))
 
         btn_go = ttk.Button(frame_pagination, text="Ir", width=3, command=self._ir_a_pagina_escrita)
         btn_go.pack(side="left", padx=2)
 
-        self.btn_next = ttk.Button(frame_pagination, text="▶", width=4, command=self.pagina_siguiente)
+        self.btn_next = ttk.Button(frame_pagination, text="▶", width=3, command=self.pagina_siguiente)
         self.btn_next.pack(side="left", padx=2)
 
         self.btn_last = ttk.Button(frame_pagination, text="⏭", width=3, command=self.ir_ultima_pagina)
         self.btn_last.pack(side="left", padx=2)
 
-        ttk.Separator(frame_pagination, orient="vertical").pack(side="left", fill="y", padx=6)
+        ttk.Separator(frame_pagination, orient="vertical").pack(side="left", fill="y", padx=6, pady=2)
 
-        ttk.Label(frame_pagination, text="Cant:").pack(side="left", padx=(2, 2))
+        tk.Label(frame_pagination, text="Filas:", bg="#f8fafc", fg="#475569", font=("Segoe UI", 8)).pack(side="left", padx=(2, 2))
         cb_size = ttk.Combobox(
             frame_pagination, textvariable=self.page_size_var,
             values=self.PAGE_SIZE_OPTIONS, state="readonly", width=4
@@ -205,47 +302,82 @@ class Window_asset_photos(tk.Toplevel):
         cb_size.pack(side="left", padx=2)
         cb_size.bind("<<ComboboxSelected>>", self._on_change_page_size)
 
-        self.lbl_page_info = ttk.Label(frame_pagination, text="0 - 0 de 0", font=("Helvetica", 8))
-        self.lbl_page_info.pack(side="right", padx=5)
+        self.lbl_page_info = tk.Label(
+            frame_pagination,
+            text="0 - 0 de 0",
+            bg="#f8fafc",
+            fg="#64748b",
+            font=("Segoe UI", 8, "italic")
+        )
+        self.lbl_page_info.pack(side="right", padx=4)
 
-        # --- Panel Derecho: Visor y Ficha de Foto (Ocupa la mayor parte del espacio) ---
-        self.frame_right = ttk.LabelFrame(self.paned, text=" Vista Previa y Ficha de Foto ", padding=8)
+        # --- Panel Derecho: Visor y Ficha de Foto ---
+        self.frame_right = ttk.LabelFrame(
+            self.paned,
+            text=" 🖼️ Vista Previa y Detalle de Fotografía ",
+            style="Photos.TLabelframe",
+            padding=8
+        )
         self.paned.add(self.frame_right, weight=3)
 
-        # Ficha superior compacta
-        frame_info = ttk.Frame(self.frame_right)
-        frame_info.pack(fill="x", pady=(0, 4))
+        # Ficha superior estilizada
+        frame_info = tk.Frame(self.frame_right, bg="#f8fafc", bd=1, relief="solid", padx=10, pady=8)
+        frame_info.pack(fill="x", pady=(0, 6))
 
-        self.lbl_den = ttk.Label(frame_info, text="Seleccione una fotografía para previsualizar", font=("Helvetica", 10, "bold"), wraplength=550)
-        self.lbl_den.pack(anchor="w", pady=(0, 2))
+        self.lbl_den = tk.Label(
+            frame_info,
+            text="Seleccione una fotografía de la tabla para previsualizar",
+            font=("Segoe UI", 10, "bold"),
+            bg="#f8fafc",
+            fg="#0f172a",
+            anchor="w",
+            justify="left",
+            wraplength=580
+        )
+        self.lbl_den.pack(fill="x", pady=(0, 2))
 
-        self.lbl_codes = ttk.Label(frame_info, text="Cód. Patrimonial: - | Cód. Interno: -", font=("Helvetica", 9))
-        self.lbl_codes.pack(anchor="w", pady=(0, 2))
+        self.lbl_codes = tk.Label(
+            frame_info,
+            text="Cód. Patrimonial: —   |   Cód. Interno: —",
+            font=("Segoe UI", 9, "bold"),
+            bg="#f8fafc",
+            fg="#2563eb",
+            anchor="w"
+        )
+        self.lbl_codes.pack(fill="x", pady=(0, 2))
 
-        self.lbl_path = ttk.Label(frame_info, text="Archivo: -", font=("Helvetica", 8), foreground="#555555", wraplength=550)
-        self.lbl_path.pack(anchor="w", pady=(0, 2))
+        self.lbl_path = tk.Label(
+            frame_info,
+            text="Archivo: —",
+            font=("Segoe UI", 8),
+            bg="#f8fafc",
+            fg="#64748b",
+            anchor="w",
+            wraplength=580
+        )
+        self.lbl_path.pack(fill="x")
 
         # Contenedor de la Imagen: Ocupa TODO el espacio disponible dinámicamente
-        self.frame_img_container = tk.Frame(self.frame_right, bg="#1a1a1a")
+        self.frame_img_container = tk.Frame(self.frame_right, bg="#0f172a", bd=1, relief="solid")
         self.frame_img_container.pack(fill="both", expand=True, pady=4)
 
         self.lbl_canvas = tk.Label(
-            self.frame_img_container, 
-            bg="#1a1a1a", 
-            text="Haga clic en una fila para cargar la foto\n\n(Doble clic en la foto para Pantalla Completa)", 
-            fg="#888888",
-            font=("Helvetica", 10)
+            self.frame_img_container,
+            bg="#0f172a",
+            text="📷  Haga clic en un registro de la lista para visualizar la fotografía\n\n(Doble clic sobre la imagen para ver en Pantalla Completa)",
+            fg="#94a3b8",
+            font=("Segoe UI", 10)
         )
         self.lbl_canvas.pack(fill="both", expand=True)
         self.lbl_canvas.bind("<Double-1>", lambda e: self.ver_pantalla_completa())
         self.frame_img_container.bind("<Configure>", self._on_container_resize)
 
         # Barra de Acciones del Visor
-        frame_actions = ttk.Frame(self.frame_right)
-        frame_actions.pack(fill="x", pady=(4, 0))
+        frame_actions = tk.Frame(self.frame_right, bg="#ffffff")
+        frame_actions.pack(fill="x", pady=(6, 0))
 
         self.btn_toggle_list = ttk.Button(frame_actions, text="◀ Ocultar Lista", command=self.toggle_lista)
-        self.btn_toggle_list.pack(side="left", padx=(0, 2))
+        self.btn_toggle_list.pack(side="left", padx=(0, 4))
 
         self.btn_fullscreen = ttk.Button(frame_actions, text="🔍 Pantalla Completa", command=self.ver_pantalla_completa)
         self.btn_fullscreen.pack(side="left", padx=2)
@@ -253,15 +385,18 @@ class Window_asset_photos(tk.Toplevel):
         self.btn_open_external = ttk.Button(frame_actions, text="🖥️ Abrir en Sistema", command=self.abrir_en_visor_sistema)
         self.btn_open_external.pack(side="left", padx=2)
 
-        self.btn_open_folder = ttk.Button(frame_actions, text="📁 Abrir Carpeta", command=self.abrir_carpeta_fotos)
+        self.btn_open_folder = ttk.Button(frame_actions, text="📁 Carpeta Fotos", command=self.abrir_carpeta_fotos)
         self.btn_open_folder.pack(side="left", padx=2)
 
-        self.btn_upload = ttk.Button(frame_actions, text="⬆️ Subir", command=self.subir_foto_al_servidor)
+        self.btn_upload = ttk.Button(frame_actions, text="⬆️ Subir al Servidor", command=self.subir_foto_al_servidor)
         self.btn_upload.pack(side="left", padx=2)
 
         self.btn_delete = ttk.Button(frame_actions, text="🗑️ Eliminar", command=self.eliminar_foto)
-        self.btn_delete.pack(side="right", padx=(2, 0))
+        self.btn_delete.pack(side="right", padx=(4, 0))
 
+    # -------------------------------------------------------------------------
+    # ACCIONES DE NAVEGACIÓN Y VISTA
+    # -------------------------------------------------------------------------
     def limpiar_busqueda(self):
         """Limpia el cuadro de búsqueda y restaura los filtros."""
         self.search_var.set("")
@@ -271,7 +406,7 @@ class Window_asset_photos(tk.Toplevel):
     def toggle_lista(self):
         """Oculta o muestra el panel de la lista para aprovechar el 100% del ancho de la ventana."""
         if self._lista_oculta:
-            self.paned.insert(0, self.frame_left, weight=1)
+            self.paned.insert(0, self.frame_left, weight=2)
             self._lista_oculta = False
             self.btn_toggle_list.config(text="◀ Ocultar Lista")
         else:
@@ -289,44 +424,51 @@ class Window_asset_photos(tk.Toplevel):
         top = tk.Toplevel(self)
         titulo = "Fotografía en Pantalla Completa"
         if self.current_selected_photo:
-            titulo = f"Foto - {self.current_selected_photo.get('denominacion', '')} (Cód. Int: {self.current_selected_photo.get('codigo_interno', '')})"
+            titulo = (
+                f"📷 {self.current_selected_photo.get('denominacion', '')}  —  "
+                f"Cód. Int: {self.current_selected_photo.get('codigo_interno', '')}  |  "
+                f"Cód. Pat: {self.current_selected_photo.get('cod_patrimonial', '')}"
+            )
         top.title(titulo)
         top.geometry("1024x720")
         try:
             top.state("zoomed")
         except Exception:
             pass
-        top.configure(bg="#111111")
+        top.configure(bg="#0f172a")
 
-        bar_top = tk.Frame(top, bg="#222222", height=36)
+        bar_top = tk.Frame(top, bg="#1e293b", height=42)
         bar_top.pack(fill="x")
 
-        lbl_info = tk.Label(bar_top, text=titulo, bg="#222222", fg="#ffffff", font=("Helvetica", 10, "bold"))
-        lbl_info.pack(side="left", padx=12, pady=6)
+        lbl_info = tk.Label(bar_top, text=titulo, bg="#1e293b", fg="#f8fafc", font=("Segoe UI", 10, "bold"))
+        lbl_info.pack(side="left", padx=14, pady=8)
 
         btn_close = ttk.Button(bar_top, text="✕ Cerrar (Esc)", command=top.destroy)
-        btn_close.pack(side="right", padx=10, pady=6)
+        btn_close.pack(side="right", padx=12, pady=6)
         top.bind("<Escape>", lambda e: top.destroy())
 
-        lbl_full = tk.Label(top, bg="#111111")
+        lbl_full = tk.Label(top, bg="#0f172a")
         lbl_full.pack(fill="both", expand=True)
 
         def _render_full(event=None):
             try:
                 top.update_idletasks()
-                w = max(300, top.winfo_width() - 20)
-                h = max(200, top.winfo_height() - 55)
+                w = max(300, top.winfo_width() - 24)
+                h = max(200, top.winfo_height() - 60)
                 with Image.open(self._current_image_path) as img:
                     img_copy = img.copy()
                     img_copy.thumbnail((w, h), Image.Resampling.LANCZOS)
                     top._tk_img = ImageTk.PhotoImage(img_copy)
                     lbl_full.config(image=top._tk_img)
             except Exception as e:
-                lbl_full.config(text=f"Error al abrir imagen: {e}", fg="#ffffff")
+                lbl_full.config(text=f"Error al abrir imagen: {e}", fg="#f8fafc")
 
         top.bind("<Configure>", lambda e: top.after(80, _render_full))
         top.after(50, _render_full)
 
+    # -------------------------------------------------------------------------
+    # CONSULTAS Y PAGINACIÓN SQL
+    # -------------------------------------------------------------------------
     def _construir_where(self):
         """Construye dinámicamente la cláusula WHERE y los parámetros para SQL."""
         conditions = ["ap.deleted_at IS NULL"]
@@ -426,15 +568,17 @@ class Window_asset_photos(tk.Toplevel):
             self._current_page_data = cur.fetchall()
             conn.close()
 
-            # 4. Refrescar Treeview de forma ultraligera
+            # 4. Refrescar Treeview con filas alternadas
             for item in self.tree.get_children():
                 self.tree.delete(item)
 
-            for row in self._current_page_data:
+            for idx, row in enumerate(self._current_page_data, 1):
                 photo_id, cod_int, cod_pat, den, ruta, fecha, sinc, asset_id = row
-                sinc_txt = "Sí (1)" if sinc == 1 else "No (0)"
+                sinc_txt = "✅ Sí (1)" if sinc == 1 else "⏳ No (0)"
+                tag = "odd" if idx % 2 == 1 else "even"
                 self.tree.insert(
                     "", "end",
+                    tags=(tag,),
                     values=(photo_id, cod_int, cod_pat, den, os.path.basename(ruta) if ruta else "", fecha, sinc_txt)
                 )
 
@@ -442,8 +586,8 @@ class Window_asset_photos(tk.Toplevel):
             desde = offset + 1 if self.total_records > 0 else 0
             hasta = min(offset + len(self._current_page_data), self.total_records)
             self.lbl_pages_total.config(text=f"de {self.total_pages}")
-            self.lbl_page_info.config(text=f"Mostrando {desde} - {hasta} de {self.total_records} fotos")
-            self.lbl_global_count.config(text=f"Total: {self.total_records} fotos")
+            self.lbl_page_info.config(text=f"Mostrando {desde} - {hasta} de {self.total_records}")
+            self.lbl_global_count.config(text=f"📷  Total: {self.total_records} {'foto' if self.total_records == 1 else 'fotos'}")
 
             # 6. Estado de los botones de navegación
             self.btn_first.config(state="normal" if self.page_current > 1 else "disabled")
@@ -482,6 +626,9 @@ class Window_asset_photos(tk.Toplevel):
     def _on_change_page_size(self, event=None):
         self.cargar_pagina(1)
 
+    # -------------------------------------------------------------------------
+    # SELECCIÓN Y RENDERIZADO DE IMAGEN
+    # -------------------------------------------------------------------------
     def _on_tree_select(self, event):
         """Carga bajo demanda la fotografía seleccionada (Lazy loading)."""
         selected = self.tree.selection()
@@ -508,13 +655,15 @@ class Window_asset_photos(tk.Toplevel):
 
     def _actualizar_visor(self, photo_data):
         """Muestra los detalles y carga la imagen seleccionada de forma aislada."""
-        self.lbl_den.config(text=f"📦 {photo_data['denominacion']}")
+        self.lbl_den.config(text=f"📦  {photo_data['denominacion']}")
+        sync_badge = "✅ Sincronizado" if photo_data.get("sincronizado") == 1 else "⏳ Pendiente de sincronizar"
         self.lbl_codes.config(
-            text=f"Cód. Patrimonial: {photo_data['cod_patrimonial'] or 'S/C'} | "
-                 f"Cód. Interno: {photo_data['codigo_interno'] or 'S/C'}"
+            text=f"Cód. Patrimonial: {photo_data['cod_patrimonial'] or 'S/C'}   |   "
+                 f"Cód. Interno: {photo_data['codigo_interno'] or 'S/C'}   |   {sync_badge}"
         )
         ruta = photo_data["ruta_foto"]
-        self.lbl_path.config(text=f"Archivo: {ruta}")
+        fecha = photo_data.get("fecha") or "—"
+        self.lbl_path.config(text=f"Archivo: {ruta}   •   Fecha: {fecha}")
 
         # Liberar imagen anterior de memoria
         self._current_tk_img = None
@@ -525,10 +674,10 @@ class Window_asset_photos(tk.Toplevel):
             self._mostrar_imagen_en_label(archivo_local)
         else:
             if ruta and str(ruta).strip():
-                self.lbl_canvas.config(text="⬇️ Descargando del servidor...", image="")
+                self.lbl_canvas.config(text="⬇️  Descargando fotografía desde el servidor...", image="")
                 threading.Thread(target=self._hilo_descargar_foto, args=(ruta,), daemon=True).start()
             else:
-                self.lbl_canvas.config(text="📷 Sin fotografía asignada", image="")
+                self.lbl_canvas.config(text="📷  Sin fotografía asignada", image="")
 
     def _resolver_ruta_local(self, ruta):
         if not ruta:
@@ -564,8 +713,8 @@ class Window_asset_photos(tk.Toplevel):
             cont_h = self.frame_img_container.winfo_height()
 
             # Espacio disponible con margen estético de seguridad
-            avail_w = max(200, cont_w - 12)
-            avail_h = max(150, cont_h - 12)
+            avail_w = max(200, cont_w - 16)
+            avail_h = max(150, cont_h - 16)
 
             with Image.open(self._current_image_path) as img:
                 img_copy = img.copy()
@@ -573,7 +722,7 @@ class Window_asset_photos(tk.Toplevel):
                 self._current_tk_img = ImageTk.PhotoImage(img_copy)
                 self.lbl_canvas.config(image=self._current_tk_img, text="")
         except Exception as e:
-            self.lbl_canvas.config(text=f"❌ Error al abrir imagen:\n{e}", image="")
+            self.lbl_canvas.config(text=f"❌  Error al abrir imagen:\n{e}", image="")
 
     def _on_container_resize(self, event=None):
         """Debounce al redimensionar la ventana o splitter para reescalar la foto fluidamente."""
@@ -607,13 +756,16 @@ class Window_asset_photos(tk.Toplevel):
                 self.after(0, lambda: self._mostrar_imagen_en_label(destino))
             else:
                 self.after(0, lambda: self.lbl_canvas.config(
-                    text="📷 Imagen vacía recibida del servidor", image=""
+                    text="📷  Imagen vacía recibida del servidor", image=""
                 ))
         except Exception as e:
             self.after(0, lambda: self.lbl_canvas.config(
-                text=f"📷 Foto en servidor no descargada:\n{e}", image=""
+                text=f"📷  Foto en servidor no descargada:\n{e}", image=""
             ))
 
+    # -------------------------------------------------------------------------
+    # OPERACIONES SOBRE ARCHIVOS Y SERVIDOR
+    # -------------------------------------------------------------------------
     def abrir_en_visor_sistema(self):
         if not self.current_selected_photo:
             mb.showinfo("Información", "Por favor seleccione una fotografía primero.", parent=self)
@@ -645,20 +797,30 @@ class Window_asset_photos(tk.Toplevel):
 
         win_input = tk.Toplevel(self)
         win_input.title("Asociar Fotografía a Bien")
-        win_input.geometry("380x210")
+        win_input.geometry("420x235")
         win_input.resizable(False, False)
+        win_input.configure(bg="#f8fafc")
         win_input.transient(self)
         win_input.grab_set()
+
+        # Centrar popup respecto a la pantalla
+        win_input.update_idletasks()
+        x = (win_input.winfo_screenwidth() - 420) // 2
+        y = (win_input.winfo_screenheight() - 235) // 2
+        win_input.geometry(f"420x235+{x}+{y}")
 
         cod_default = self.current_selected_photo["codigo_interno"] if self.current_selected_photo else ""
         v_cod = tk.StringVar(value=cod_default)
 
-        ttk.Label(win_input, text="Archivo seleccionado:").pack(anchor="w", padx=15, pady=(15, 2))
-        ttk.Label(win_input, text=os.path.basename(archivo), font=("Helvetica", 9, "bold")).pack(anchor="w", padx=15)
+        card = ttk.LabelFrame(win_input, text=" 📎 Vincular Imagen a Activo ", style="Photos.TLabelframe", padding=14)
+        card.pack(fill="both", expand=True, padx=12, pady=12)
 
-        ttk.Label(win_input, text="Código Interno o Patrimonial del Bien:").pack(anchor="w", padx=15, pady=(10, 2))
-        etr_cod = ttk.Entry(win_input, textvariable=v_cod, width=25)
-        etr_cod.pack(anchor="w", padx=15)
+        ttk.Label(card, text="Archivo seleccionado:", font=("Segoe UI", 8)).pack(anchor="w")
+        ttk.Label(card, text=os.path.basename(archivo), font=("Segoe UI", 9, "bold"), foreground="#1e293b").pack(anchor="w", pady=(0, 10))
+
+        ttk.Label(card, text="Código Interno o Patrimonial del Bien:", font=("Segoe UI", 9)).pack(anchor="w", pady=(0, 4))
+        etr_cod = ttk.Entry(card, textvariable=v_cod, width=32, font=("Segoe UI", 9))
+        etr_cod.pack(fill="x", pady=(0, 12))
         etr_cod.focus_set()
 
         def _guardar_asociacion():
@@ -698,7 +860,8 @@ class Window_asset_photos(tk.Toplevel):
             except Exception as e:
                 mb.showerror("Error", f"No se pudo guardar la fotografía:\n{e}", parent=win_input)
 
-        ttk.Button(win_input, text="💾 Guardar Asociación", command=_guardar_asociacion).pack(fill="x", padx=15, pady=15)
+        etr_cod.bind("<Return>", lambda _e: _guardar_asociacion())
+        ttk.Button(card, text="💾 Guardar Asociación", command=_guardar_asociacion).pack(fill="x")
 
     def subir_foto_al_servidor(self):
         if not self.current_selected_photo:
@@ -776,7 +939,7 @@ class Window_asset_photos(tk.Toplevel):
 
             mb.showinfo("Éxito", "Registro de fotografía eliminado.", parent=self)
             self.current_selected_photo = None
-            self.lbl_canvas.config(image="", text="Registro eliminado")
+            self.lbl_canvas.config(image="", text="📷  Registro eliminado")
             self.cargar_pagina(self.page_current)
 
         except Exception as e:

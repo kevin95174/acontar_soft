@@ -1,7 +1,21 @@
 import sqlite3
+import os
+import configparser
 from datetime import datetime
 from sqlite3 import Error
 from db.conex import iniciar_conexion_sqlite
+from services.db_mirror import (
+    mirror_inventario,
+    mirror_detalles,
+    mirror_sobrante,
+    mirror_delete_sobrante,
+    mirror_personal,
+    mirror_delete_personal,
+    mirror_usuario,
+    mirror_vehiculo,
+    sincronizar_cola_completa,
+    disparar_sincronizacion_background,
+)
 
 def exportar_data(tabla):
     conn_sqlite = iniciar_conexion_sqlite()
@@ -165,13 +179,23 @@ def mostrar_datos_print(codigo):
 
 def mostrar_datos_test(Acta):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f"""SELECT CodPat, CodInt, DenBien, ActaAnt, personal.local, personal.area, personal.oficina, 
-                personal.nombre ||' '|| personal.apellidoPat ||' '|| personal.apellidoMat AS fullName, Estado, Dimension, Marca, Modelo, 
-                Serie, Color, printf("%.2f", ValAdq), Obs, Otros, Situacion, FechInv, Inventariador, Equipo
-                FROM personal INNER JOIN bienes ON bienes.ActaAnt = personal.Acta WHERE CodPat = {Acta} OR CodInt = {Acta} ORDER BY bienes.FechInv"""
+    cod_str = str(Acta).strip()
+    sql_sqlite = """
+        SELECT
+            b.CodPat, b.CodInt, b.DenBien, b.ActaAnt,
+            p.local, p.area, p.oficina,
+            TRIM(COALESCE(p.nombre, '') || ' ' || COALESCE(p.apellidoPat, '') || ' ' || COALESCE(p.apellidoMat, '')) AS fullName,
+            b.Estado, b.Dimension, b.Marca, b.Modelo,
+            b.Serie, b.Color, b.Tipo, printf("%.2f", b.ValAdq),
+            b.Obs, b.Otros, b.Situacion, b.FechInv, b.Inventariador, b.Equipo
+        FROM bienes b
+        LEFT JOIN personal p ON b.ActaAnt = p.Acta
+        WHERE b.CodPat = ? OR CAST(b.CodInt AS TEXT) = ?
+        ORDER BY b.FechInv
+    """
     try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite)
+        cur.execute(sql_sqlite, (cod_str, cod_str))
         books = cur.fetchall()
         return books
     except Error as e:
@@ -254,16 +278,32 @@ def buscar_bien(codigo, valor):
 
 def buscar_bien_d(valor, codigo):
     conn_sqlite = iniciar_conexion_sqlite()
+    codigo_str = str(codigo).strip()
     if valor == 1:
-        sql_sqlite = f"""SELECT DenBien, Inv, ActaAnt ||" - "||personal.local||' '||personal.area||' '||personal.oficina AS ubicacion, Marca, Serie, Modelo, FechAdq, NroDocAdq, Color, Estado, Dimension, Obs,
-                Otros, Situacion, CodPat, Nota, Tipo, ValAdq, CtaCont ||' - '|| DenCta, CodInt
-                FROM personal INNER JOIN bienes ON bienes.ActaAnt = personal.Acta WHERE CodPat = "{codigo}" OR CodInt = "{codigo}" """
+        sql_sqlite = """
+            SELECT
+                b.DenBien,
+                b.Inv,
+                COALESCE(b.ActaAnt || ' - ' || personal.local || ' ' || personal.area || ' ' || personal.oficina, b.ActaAnt, '') AS ubicacion,
+                b.Marca, b.Serie, b.Modelo, b.FechAdq, b.NroDocAdq, b.Color, b.Estado, b.Dimension, b.Obs,
+                b.Otros, b.Situacion, b.CodPat, b.Nota, b.Tipo, b.ValAdq,
+                COALESCE(b.CtaCont || ' - ' || b.DenCta, b.CtaCont, ''),
+                b.CodInt
+            FROM bienes b
+            LEFT JOIN personal ON b.ActaAnt = personal.Acta
+            WHERE b.CodPat = ? OR CAST(b.CodInt AS TEXT) = ?
+        """
+        params = (codigo_str, codigo_str)
     elif valor == 2:
-        sql_sqlite = f"""SELECT Marca, Modelo, Color, Serie, Estado, Dimension, Tipo
-                FROM bienes WHERE CodPat = "{codigo}" OR CodInt = "{codigo}" """
+        sql_sqlite = """
+            SELECT Marca, Modelo, Color, Serie, Estado, Dimension, Tipo
+            FROM bienes
+            WHERE CodPat = ? OR CAST(CodInt AS TEXT) = ?
+        """
+        params = (codigo_str, codigo_str)
     try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite)
+        cur.execute(sql_sqlite, params)
         books = cur.fetchall()
         return books
     except Error as e:
@@ -275,17 +315,23 @@ def buscar_bien_d(valor, codigo):
 
 def actualizar_registro(id, data):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f""" UPDATE bienes SET
-                                Inv = ?,
-                                FechInv = ?,
-                                Inventariador = ?,
-                                Equipo = ?
-            WHERE CodPat = {id} OR CodInt = {id}
-            """
-    try: 
+    id_str = str(id).strip()
+    try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite, data)
+        inv_val = data[0] if len(data) > 0 else ""
+        fech_val = data[1] if len(data) > 1 else None
+        inv_user = data[2] if len(data) > 2 else ""
+        equipo_val = data[3] if len(data) > 3 else ""
+        mirror_inventario(
+            cur,
+            id_str,
+            inv_val,
+            fech_inv=fech_val,
+            inventariador=inv_user,
+            equipo=equipo_val,
+        )
         conn_sqlite.commit()
+        disparar_sincronizacion_background()
     except Error as e:
         print("Error updating data: " + str(e))
     finally:
@@ -314,14 +360,13 @@ def cabecera(id):
 
 def registrar_codpat(id, data):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f""" UPDATE bienes SET
-                                Inv = ?
-            WHERE CodPat = {id}
-            """
-    try: 
+    id_str = str(id).strip()
+    try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite, data)
+        inv_val = data[0] if isinstance(data, (list, tuple)) else data
+        mirror_inventario(cur, id_str, inv_val)
         conn_sqlite.commit()
+        disparar_sincronizacion_background()
     except Error as e:
         print("Error updating data: " + str(e))
     finally:
@@ -331,14 +376,13 @@ def registrar_codpat(id, data):
 
 def registrar_codint(id, data):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f""" UPDATE bienes SET
-                                Inv = ?
-            WHERE CodInt = {id}
-            """
-    try: 
+    id_str = str(id).strip()
+    try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite, data)
+        inv_val = data[0] if isinstance(data, (list, tuple)) else data
+        mirror_inventario(cur, id_str, inv_val)
         conn_sqlite.commit()
+        disparar_sincronizacion_background()
     except Error as e:
         print("Error updating data: " + str(e))
     finally:
@@ -578,33 +622,266 @@ def buscar_criterio_acta_ant(Acta, criterio, campo):
             conn_sqlite.close()
 
 
-def buscar_data(criterio, campo):
+def buscar_data(criterio, campo, filtro_fotos="TODOS"):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f"""SELECT CodInt, ActaAnt, Inv, CodPat, DenBien, Estado, Dimension, Marca, Modelo, 
-            Serie, Color, CtaCont, printf("%.2f", ValAdq), Obs FROM bienes WHERE "{criterio}" LIKE "%{campo}%" ORDER BY Inv, FechInv DESC"""
-    
+    cond_fotos = ""
+    if filtro_fotos == "SIN_FOTOS":
+        cond_fotos = " AND COALESCE(fp.total_fotos, 0) = 0 "
+    elif filtro_fotos == "CON_FOTOS":
+        cond_fotos = " AND COALESCE(fp.total_fotos, 0) > 0 "
+
+    sql_sqlite = f"""
+        WITH fotos_por_bien AS (
+            SELECT
+                CAST(COALESCE(
+                    NULLIF(TRIM(CAST(ap.codigo_interno AS TEXT)), ''),
+                    NULLIF(TRIM(CAST(ast.codigo_interno AS TEXT)), ''),
+                    CAST(ap.asset_id AS TEXT)
+                ) AS TEXT) AS cod_int_key,
+                COUNT(*) AS total_fotos
+            FROM asset_photos ap
+            LEFT JOIN assets ast ON ast.id = ap.asset_id
+            WHERE ap.deleted_at IS NULL
+              AND COALESCE(TRIM(ap.ruta_foto), '') <> ''
+            GROUP BY cod_int_key
+        )
+        SELECT
+            b.CodInt, b.ActaAnt, b.Inv, b.CodPat, b.DenBien, b.Estado, b.Dimension, b.Marca, b.Modelo,
+            b.Serie, b.Color, b.CtaCont, printf("%.2f", b.ValAdq), b.Obs,
+            COALESCE(fp.total_fotos, 0) AS TotalFotos
+        FROM bienes b
+        LEFT JOIN fotos_por_bien fp ON fp.cod_int_key = CAST(b.CodInt AS TEXT)
+        WHERE b."{criterio}" LIKE ? {cond_fotos}
+        ORDER BY b.Inv, b.FechInv DESC
+    """
     try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite)
+        cur.execute(sql_sqlite, (f"%{campo}%",))
         books = cur.fetchall()
         return books
     except Error as e:
         print("Error selecting: " + str(e))
+        return []
     finally:
         if conn_sqlite:
             cur.close()
             conn_sqlite.close()
-        
-def registrar_sobrantes(a, b, c, d, e, f, g, h, i, j, k, l):
+
+
+def obtener_fotos_bien(codigo):
+    """
+    Devuelve la lista de fotografías activas en `asset_photos` para el bien indicado
+    (por `CodInt` o `CodPat`), ordenadas de la más reciente a la más antigua.
+    Cada elemento es un dict: `{'id', 'asset_id', 'codigo_interno', 'ruta_foto', 'fecha', 'sincronizado'}`.
+    """
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f""" INSERT INTO sobrantes
-                (acta, local, area, oficina, den, estado, dim, marca, modelo, serie, color, obs) 
-                VALUES ('{a}', '{b}', '{c}', '{d}', '{e}', '{f}', '{g}', '{h}', '{i}', '{j}', '{k}', '{l}') 
-            """
-    try: 
+    codigo_str = str(codigo or "").strip()
+    if not codigo_str:
+        return []
+    try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite)
+        cur.execute("""
+            SELECT id, asset_id, codigo_interno, codigo_patrimonial
+            FROM inventory_records
+            WHERE CAST(codigo_interno AS TEXT) = ? OR codigo_patrimonial = ?
+            LIMIT 1
+        """, (codigo_str, codigo_str))
+        row_inv = cur.fetchone()
+        cod_int = str(row_inv[2]) if (row_inv and row_inv[2] is not None and str(row_inv[2]).strip() != "") else codigo_str
+        inv_id = row_inv[0] if row_inv else -1
+        ast_id = row_inv[1] if (row_inv and row_inv[1]) else -1
+
+        cur.execute("""
+            SELECT
+                ap.id,
+                COALESCE(ap.asset_id, 0),
+                COALESCE(NULLIF(TRIM(CAST(ap.codigo_interno AS TEXT)), ''), CAST(ast.codigo_interno AS TEXT), ?),
+                COALESCE(ap.ruta_foto, ''),
+                COALESCE(ap.fecha, ap.created_at, ''),
+                COALESCE(ap.sincronizado, 0)
+            FROM asset_photos ap
+            LEFT JOIN assets ast ON ast.id = ap.asset_id
+            WHERE ap.deleted_at IS NULL
+              AND COALESCE(TRIM(ap.ruta_foto), '') <> ''
+              AND (
+                  CAST(ap.codigo_interno AS TEXT) = ?
+                  OR CAST(ast.codigo_interno AS TEXT) = ?
+                  OR (ap.asset_id IS NOT NULL AND ap.asset_id > 0 AND ap.asset_id IN (?, ?))
+              )
+            ORDER BY ap.id DESC
+        """, (cod_int, cod_int, cod_int, inv_id, ast_id))
+        filas = cur.fetchall()
+        return [
+            {
+                "id": r[0],
+                "asset_id": r[1],
+                "codigo_interno": str(r[2] or cod_int),
+                "ruta_foto": str(r[3] or ""),
+                "fecha": str(r[4] or ""),
+                "sincronizado": int(r[5] or 0),
+            }
+            for r in filas
+        ]
+    except Exception as e:
+        print(f"Error en obtener_fotos_bien: {e}")
+        return []
+    finally:
+        if conn_sqlite:
+            conn_sqlite.close()
+
+
+def agregar_foto_bien(codigo, ruta_origen, photos_dir=None):
+    """
+    Copia una imagen a la carpeta local `photos/`, la registra en `asset_photos`
+    vinculada al bien (`codigo_interno` y `asset_id`), actualiza `foto_url` y dispara
+    la sincronización en segundo plano hacia el servidor.
+    """
+    import shutil
+    conn_sqlite = iniciar_conexion_sqlite()
+    codigo_str = str(codigo or "").strip()
+    if not codigo_str:
+        raise ValueError("Debe seleccionar un bien válido para asociar la fotografía.")
+    if not ruta_origen or not os.path.exists(ruta_origen):
+        raise ValueError("El archivo de imagen seleccionado no existe.")
+
+    if not photos_dir:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        photos_dir = os.path.normpath(os.path.join(base_dir, "..", "photos"))
+    os.makedirs(photos_dir, exist_ok=True)
+
+    try:
+        cur = conn_sqlite.cursor()
+        cur.execute("""
+            SELECT id, asset_id, codigo_interno
+            FROM inventory_records
+            WHERE CAST(codigo_interno AS TEXT) = ? OR codigo_patrimonial = ?
+            LIMIT 1
+        """, (codigo_str, codigo_str))
+        row_inv = cur.fetchone()
+
+        cur.execute("""
+            SELECT id, codigo_interno
+            FROM assets
+            WHERE CAST(codigo_interno AS TEXT) = ? OR codigo_patrimonial = ?
+            LIMIT 1
+        """, (codigo_str, codigo_str))
+        row_ast = cur.fetchone()
+
+        cod_int = (
+            str(row_inv[2]).strip()
+            if (row_inv and row_inv[2] is not None and str(row_inv[2]).strip())
+            else (str(row_ast[1]).strip() if (row_ast and row_ast[1]) else codigo_str)
+        )
+        asset_id = (
+            row_ast[0]
+            if row_ast
+            else (row_inv[1] if (row_inv and row_inv[1]) else (row_inv[0] if row_inv else None))
+        )
+
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:18]
+        nombre_limpio = os.path.basename(ruta_origen).replace(" ", "_")
+        nombre_destino = f"code_{cod_int}_{ts}_{nombre_limpio}"
+        ruta_final = os.path.join(photos_dir, nombre_destino)
+        shutil.copy2(ruta_origen, ruta_final)
+
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cur.execute("""
+            INSERT INTO asset_photos (
+                asset_id, codigo_interno, ruta_foto, fecha, sincronizado, created_at, updated_at, deleted_at
+            ) VALUES (?, ?, ?, ?, 0, ?, ?, NULL)
+        """, (asset_id, cod_int, nombre_destino, now_str, now_str, now_str))
+        nuevo_id = cur.lastrowid
+
+        cur.execute("""
+            UPDATE inventory_records
+            SET foto_url = COALESCE(NULLIF(TRIM(foto_url), ''), ?), updated_at = ?
+            WHERE CAST(codigo_interno AS TEXT) = ?
+        """, (nombre_destino, now_str, cod_int))
+        cur.execute("""
+            UPDATE assets
+            SET foto_url = COALESCE(NULLIF(TRIM(foto_url), ''), ?), updated_at = ?
+            WHERE CAST(codigo_interno AS TEXT) = ?
+        """, (nombre_destino, now_str, cod_int))
+
         conn_sqlite.commit()
+        disparar_sincronizacion_background()
+        return {
+            "id": nuevo_id,
+            "asset_id": asset_id,
+            "codigo_interno": cod_int,
+            "ruta_foto": nombre_destino,
+            "fecha": now_str,
+            "sincronizado": 0,
+        }
+    except Exception as e:
+        conn_sqlite.rollback()
+        raise e
+    finally:
+        if conn_sqlite:
+            conn_sqlite.close()
+
+
+def eliminar_foto_bien(photo_id):
+    """
+    Marca una fotografía como eliminada (`deleted_at = CURRENT_TIMESTAMP`) en `asset_photos`.
+    """
+    conn_sqlite = iniciar_conexion_sqlite()
+    try:
+        cur = conn_sqlite.cursor()
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cur.execute("""
+            UPDATE asset_photos
+            SET deleted_at = ?, updated_at = ?
+            WHERE id = ?
+        """, (now_str, now_str, int(photo_id)))
+        conn_sqlite.commit()
+        return cur.rowcount > 0
+    except Exception as e:
+        conn_sqlite.rollback()
+        print(f"Error en eliminar_foto_bien: {e}")
+        return False
+    finally:
+        if conn_sqlite:
+            conn_sqlite.close()
+
+
+def obtener_mapa_conteo_fotos():
+    """
+    Devuelve un diccionario `{str(codigo_interno): int(total_fotos)}` con el conteo
+    de fotografías activas en `asset_photos` para uso rápido en tablas de inventario.
+    """
+    conn_sqlite = iniciar_conexion_sqlite()
+    try:
+        cur = conn_sqlite.cursor()
+        cur.execute("""
+            SELECT
+                CAST(COALESCE(
+                    NULLIF(TRIM(CAST(ap.codigo_interno AS TEXT)), ''),
+                    NULLIF(TRIM(CAST(ast.codigo_interno AS TEXT)), ''),
+                    CAST(ap.asset_id AS TEXT)
+                ) AS TEXT) AS cod_int_key,
+                COUNT(*) AS total_fotos
+            FROM asset_photos ap
+            LEFT JOIN assets ast ON ast.id = ap.asset_id
+            WHERE ap.deleted_at IS NULL
+              AND COALESCE(TRIM(ap.ruta_foto), '') <> ''
+            GROUP BY cod_int_key
+        """)
+        return {str(r[0]).strip(): int(r[1] or 0) for r in cur.fetchall() if r[0] is not None}
+    except Exception as e:
+        print(f"Error en obtener_mapa_conteo_fotos: {e}")
+        return {}
+    finally:
+        if conn_sqlite:
+            conn_sqlite.close()
+        
+def registrar_sobrantes(a, b, c, d, e, f, g, h, i, j, k, l, m="", n="", o="", p=""):
+    conn_sqlite = iniciar_conexion_sqlite()
+    try:
+        cur = conn_sqlite.cursor()
+        mirror_sobrante(cur, None, a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p)
+        conn_sqlite.commit()
+        disparar_sincronizacion_background()
     except Error as e:
         print("Error updating data: " + str(e))
     finally:
@@ -651,12 +928,10 @@ def mostrar_sobrantes_test(item):
         
 def delete_sobrante(id):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f"DELETE FROM sobrantes WHERE item = {id}"
     try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite)
+        mirror_delete_sobrante(cur, int(id))
         conn_sqlite.commit()
-        # print("Item eliminado")
         return True
     except Error as e:
         print("Error Deleting book:" + str(e))
@@ -682,25 +957,27 @@ def mostrar_personal():
 
 def actualizar_personal(id, data):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f""" UPDATE personal SET
-                            nombre = ?,
-                            apellidoPat = ?,
-                            apellidoMat = ?,
-                            dni = ?,
-                            dep = ?,
-                            prov = ?,
-                            dist = ?,
-                            local = ?,
-                            area = ?,
-                            oficina = ?,
-                            EquiInv = ?
-
-            WHERE Acta = '{id}'
-            """
-    try: 
+    id_str = str(id).strip()
+    try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite, data)
+        # data: [nombre, apellidoPat, apellidoMat, dni, dep, prov, dist, local, area, oficina, EquiInv]
+        mirror_personal(
+            cur,
+            acta=id_str,
+            dep=data[4] if len(data) > 4 else "",
+            prov=data[5] if len(data) > 5 else "",
+            dist=data[6] if len(data) > 6 else "",
+            local=data[7] if len(data) > 7 else "",
+            area=data[8] if len(data) > 8 else "",
+            oficina=data[9] if len(data) > 9 else "",
+            dni=data[3] if len(data) > 3 else "",
+            nombre=data[0] if len(data) > 0 else "",
+            apellido_pat=data[1] if len(data) > 1 else "",
+            apellido_mat=data[2] if len(data) > 2 else "",
+            equi_inv=data[10] if len(data) > 10 else "",
+        )
         conn_sqlite.commit()
+        disparar_sincronizacion_background()
     except Error as e:
         print("Error updating data: " + str(e))
     finally:
@@ -708,16 +985,13 @@ def actualizar_personal(id, data):
             cur.close()
             conn_sqlite.close()
 
-def registrar_personal(a, b, c, d, e, f, g, h, i, j, k):
+def registrar_personal(a, b, c, d, e, f, g, h, i, j, k, l=""):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f""" INSERT INTO personal
-                (Acta, dep, prov, dist, local, area, oficina, dni, nombre, apellidoPat, apellidoMat) 
-                VALUES ('{a}', '{b}', '{c}', '{d}', '{e}', '{f}', '{g}', '{h}', '{i}', '{j}', '{k}') 
-            """
-    try: 
+    try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite)
+        mirror_personal(cur, a, b, c, d, e, f, g, h, i, j, k, l)
         conn_sqlite.commit()
+        disparar_sincronizacion_background()
     except Error as e:
         print("Error updating data: " + str(e))
     finally:
@@ -727,10 +1001,10 @@ def registrar_personal(a, b, c, d, e, f, g, h, i, j, k):
 
 def delete_personal(id):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f"DELETE FROM personal WHERE Acta = {id}"
+    id_str = str(id).strip()
     try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite)
+        mirror_delete_personal(cur, id_str)
         conn_sqlite.commit()
         print("Item eliminado")
         return True
@@ -976,13 +1250,9 @@ def inventariador():
 
 def registrar_usuario(a, b, c, d, e, f):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f""" INSERT INTO usuarios
-                (usuario, password, Nombres, APat, AMat, dni) 
-                VALUES ('{a}', '{b}', '{c}', '{d}', '{e}', '{f}') 
-            """
-    try: 
+    try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite)
+        mirror_usuario(cur, a, b, c, d, e, f, "OPERADOR")
         conn_sqlite.commit()
     except Error as e:
         print("Error al ingresar datos: " + str(e))
@@ -993,17 +1263,15 @@ def registrar_usuario(a, b, c, d, e, f):
 
 def login_register(a, b, c, d, e, f, g):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f"""SELECT * FROM usuarios WHERE usuario = ('{a}') """
     try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite)
+        cur.execute("SELECT id FROM users WHERE usuario = ?", (a,))
         books = cur.fetchall()
         if books:
             print("Usuario ya existe")
             return 1
         else:
-            sql_sqlite = f""" INSERT INTO usuarios (usuario, password, Nombres, APat, AMat, dni, equipo) VALUES ('{a}', '{b}', '{c}', '{d}', '{e}', '{f}', '{g}') """
-            cur.execute(sql_sqlite)
+            mirror_usuario(cur, a, b, c, d, e, f, g)
             conn_sqlite.commit()
             print("Registrado con exito")
             return 2
@@ -1016,11 +1284,23 @@ def login_register(a, b, c, d, e, f, g):
 
 def registrar_codpat_test(id, data):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f""" UPDATE bienes SET Inv = ? , FechInv = ?, Inventariador = ?, Equipo = ? WHERE CodPat = {id} OR CodInt = {id}"""
+    id_str = str(id).strip()
     try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite, data)
+        inv_val = data[0] if len(data) > 0 else ""
+        fech_val = data[1] if len(data) > 1 else None
+        inv_user = data[2] if len(data) > 2 else ""
+        equipo_val = data[3] if len(data) > 3 else ""
+        mirror_inventario(
+            cur,
+            id_str,
+            inv_val,
+            fech_inv=fech_val,
+            inventariador=inv_user,
+            equipo=equipo_val,
+        )
         conn_sqlite.commit()
+        disparar_sincronizacion_background()
     except Error as e:
         print("Error selecting: " + str(e))
     finally:
@@ -1048,11 +1328,23 @@ def val_codpat_test(id):
 
 def registrar_codint_test(id, data):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f""" UPDATE bienes SET Inv = ?, FechInv = ?, Inventariador = ?, Equipo = ? WHERE CodInt = {id} """
+    id_str = str(id).strip()
     try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite, data)
+        inv_val = data[0] if len(data) > 0 else ""
+        fech_val = data[1] if len(data) > 1 else None
+        inv_user = data[2] if len(data) > 2 else ""
+        equipo_val = data[3] if len(data) > 3 else ""
+        mirror_inventario(
+            cur,
+            id_str,
+            inv_val,
+            fech_inv=fech_val,
+            inventariador=inv_user,
+            equipo=equipo_val,
+        )
         conn_sqlite.commit()
+        disparar_sincronizacion_background()
     except Error as e:
         print("Error selecting: " + str(e))
     finally:
@@ -1100,11 +1392,14 @@ def val_bien_nuevo(id):
 
 def registro_fecha(id, data):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f""" UPDATE bienes SET Inv = ?, FechInv = ? WHERE CodInt = {id} """
-    try: 
+    id_str = str(id).strip()
+    try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite, data)
+        inv_val = data[0] if len(data) > 0 else ""
+        fech_val = data[1] if len(data) > 1 else None
+        mirror_inventario(cur, id_str, inv_val, fech_val)
         conn_sqlite.commit()
+        disparar_sincronizacion_background()
     except Error as e:
         print("Error updating data: " + str(e))
     finally:
@@ -1180,26 +1475,26 @@ def delete_table(tabla):
 
 def actualizar_detalles(id, data):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f""" UPDATE bienes SET
-                                Marca = ?,
-                                Modelo = ?,
-                                Color = ?,
-                                Serie = ?,
-                                Estado = ?,
-                                Dimension = ?,
-                                Obs = ?,
-                                Otros = ?,
-                                Situacion = ?,
-                                FechAdq = ?,
-                                NroDocAdq = ?,
-                                Nota = ?,
-                                Tipo = ?
-            WHERE CodPat = {id} OR CodInt = {id}
-            """
-    try: 
+    id_str = str(id).strip()
+    try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite, data)
+        mirror_detalles(cur, id_str, {
+            "marca": data[0] if len(data) > 0 else "",
+            "modelo": data[1] if len(data) > 1 else "",
+            "color": data[2] if len(data) > 2 else "",
+            "serie": data[3] if len(data) > 3 else "",
+            "estado": data[4] if len(data) > 4 else "",
+            "dimension": data[5] if len(data) > 5 else "",
+            "observacion": data[6] if len(data) > 6 else "",
+            "otros": data[7] if len(data) > 7 else "",
+            "situacion": data[8] if len(data) > 8 else "",
+            "fech_adq": data[9] if len(data) > 9 else "",
+            "nro_doc_adq": data[10] if len(data) > 10 else "",
+            "nota": data[11] if len(data) > 11 else "",
+            "tipo": data[12] if len(data) > 12 else "",
+        })
         conn_sqlite.commit()
+        disparar_sincronizacion_background()
     except Error as e:
         print("Error updating data: " + str(e))
     finally:
@@ -1209,16 +1504,45 @@ def actualizar_detalles(id, data):
 
 def estado_inventario():
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = """   SELECT Acta, local, area, oficina, 
-                    SUM(CASE WHEN bienes.ActaAnt=personal.Acta THEN 1 ELSE 0 END) AS TBienes,
-                    (SELECT COUNT(*) FROM bienes WHERE bienes.Inv=personal.Acta AND bienes.Inv <> '') AS TInventariados,
-                    SUM(CASE WHEN bienes.Inv='' THEN 1 ELSE 0 END) AS TFaltantes,
-                    (SELECT COUNT(*) FROM sobrantes WHERE sobrantes.acta=personal.Acta) AS TSobrantes
-                FROM personal 
-                LEFT JOIN bienes ON bienes.ActaAnt=personal.Acta
-                GROUP BY personal.Acta
-
-                """
+    sql_sqlite = """
+        WITH b_ant AS (
+            SELECT
+                CAST(codigo_ubicacion_inicial AS TEXT) AS acta_key,
+                COUNT(*) AS total_bienes,
+                SUM(CASE WHEN COALESCE(inventariado, 0) = 0 OR COALESCE(CAST(codigo_ubicacion_final AS TEXT), '') IN ('', '0') THEN 1 ELSE 0 END) AS total_faltantes
+            FROM inventory_records
+            GROUP BY CAST(codigo_ubicacion_inicial AS TEXT)
+        ),
+        b_inv AS (
+            SELECT
+                CAST(codigo_ubicacion_final AS TEXT) AS acta_key,
+                COUNT(*) AS total_inv
+            FROM inventory_records
+            WHERE COALESCE(inventariado, 0) = 1
+              AND COALESCE(CAST(codigo_ubicacion_final AS TEXT), '') NOT IN ('', '0')
+            GROUP BY CAST(codigo_ubicacion_final AS TEXT)
+        ),
+        s_agg AS (
+            SELECT
+                CAST(codigo_ubicacion AS TEXT) AS acta_key,
+                COUNT(*) AS total_sobr
+            FROM surplus
+            GROUP BY CAST(codigo_ubicacion AS TEXT)
+        )
+        SELECT
+            p.Acta,
+            p.local,
+            p.area,
+            p.oficina,
+            COALESCE(ba.total_bienes, 0) AS TBienes,
+            COALESCE(bi.total_inv, 0) AS TInventariados,
+            COALESCE(ba.total_faltantes, 0) AS TFaltantes,
+            COALESCE(sa.total_sobr, 0) AS TSobrantes
+        FROM personal p
+        LEFT JOIN b_ant ba ON ba.acta_key = CAST(p.Acta AS TEXT)
+        LEFT JOIN b_inv bi ON bi.acta_key = CAST(p.Acta AS TEXT)
+        LEFT JOIN s_agg sa ON sa.acta_key = CAST(p.Acta AS TEXT)
+    """
     try:
         cur = conn_sqlite.cursor()
         cur.execute(sql_sqlite)
@@ -1230,19 +1554,49 @@ def estado_inventario():
         if conn_sqlite:
             cur.close()
             conn_sqlite.close()
-        
+
 def buscar_estado(criterio, campo):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f"""  SELECT Acta, local, area, oficina, 
-                    SUM(CASE WHEN bienes.ActaAnt=personal.Acta THEN 1 ELSE 0 END) AS TBienes,
-                    (SELECT COUNT(*) FROM bienes WHERE bienes.Inv=personal.Acta AND bienes.Inv <> '') AS TInventariados,
-                    SUM(CASE WHEN bienes.Inv='' THEN 1 ELSE 0 END) AS TFaltantes,
-                    (SELECT COUNT(*) FROM sobrantes WHERE sobrantes.acta=personal.Acta) AS TSobrantes
-                FROM personal 
-                LEFT JOIN bienes ON bienes.ActaAnt=personal.Acta
-                WHERE "{criterio}" LIKE "%{campo}%"
-                GROUP BY personal.Acta
-            """
+    sql_sqlite = f"""
+        WITH b_ant AS (
+            SELECT
+                CAST(codigo_ubicacion_inicial AS TEXT) AS acta_key,
+                COUNT(*) AS total_bienes,
+                SUM(CASE WHEN COALESCE(inventariado, 0) = 0 OR COALESCE(CAST(codigo_ubicacion_final AS TEXT), '') IN ('', '0') THEN 1 ELSE 0 END) AS total_faltantes
+            FROM inventory_records
+            GROUP BY CAST(codigo_ubicacion_inicial AS TEXT)
+        ),
+        b_inv AS (
+            SELECT
+                CAST(codigo_ubicacion_final AS TEXT) AS acta_key,
+                COUNT(*) AS total_inv
+            FROM inventory_records
+            WHERE COALESCE(inventariado, 0) = 1
+              AND COALESCE(CAST(codigo_ubicacion_final AS TEXT), '') NOT IN ('', '0')
+            GROUP BY CAST(codigo_ubicacion_final AS TEXT)
+        ),
+        s_agg AS (
+            SELECT
+                CAST(codigo_ubicacion AS TEXT) AS acta_key,
+                COUNT(*) AS total_sobr
+            FROM surplus
+            GROUP BY CAST(codigo_ubicacion AS TEXT)
+        )
+        SELECT
+            p.Acta,
+            p.local,
+            p.area,
+            p.oficina,
+            COALESCE(ba.total_bienes, 0) AS TBienes,
+            COALESCE(bi.total_inv, 0) AS TInventariados,
+            COALESCE(ba.total_faltantes, 0) AS TFaltantes,
+            COALESCE(sa.total_sobr, 0) AS TSobrantes
+        FROM personal p
+        LEFT JOIN b_ant ba ON ba.acta_key = CAST(p.Acta AS TEXT)
+        LEFT JOIN b_inv bi ON bi.acta_key = CAST(p.Acta AS TEXT)
+        LEFT JOIN s_agg sa ON sa.acta_key = CAST(p.Acta AS TEXT)
+        WHERE "{criterio}" LIKE "%{campo}%"
+    """
     try:
         cur = conn_sqlite.cursor()
         cur.execute(sql_sqlite)
@@ -1257,33 +1611,11 @@ def buscar_estado(criterio, campo):
 
 def actualizar_sobrante(id, data):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f"""  UPDATE sobrantes SET
-                                acta = ?, local = ?, area = ?, oficina = ?, den = ?, estado = ?,
-                                dim = ?, marca = ?, modelo = ?, serie = ?, color = ?, obs = ?,
-                                tipo = ?, otros = ?, situacion = ?, nota = ?
-                WHERE item = {id}
-            """
-    try: 
+    try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite, data)
+        mirror_sobrante(cur, int(id), *data)
         conn_sqlite.commit()
-    except Error as e:
-        print("Error updating data: " + str(e))
-    finally:
-        if conn_sqlite:
-            cur.close()
-            conn_sqlite.close()
-
-def registrar_sobrantes(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p):
-    conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f""" INSERT INTO sobrantes
-                (acta, local, area, oficina, den, estado, dim, marca, modelo, serie, color, obs, tipo, otros, situacion, nota) 
-                VALUES ('{a}', '{b}', '{c}', '{d}', '{e}', '{f}', '{g}', '{h}', '{i}', '{j}', '{k}', '{l}', '{m}', '{n}', '{o}', '{p}') 
-            """
-    try: 
-        cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite)
-        conn_sqlite.commit()
+        disparar_sincronizacion_background()
     except Error as e:
         print("Error updating data: " + str(e))
     finally:
@@ -1293,14 +1625,13 @@ def registrar_sobrantes(a, b, c, d, e, f, g, h, i, j, k, l, m, n, o, p):
 
 def update_inventario(id, data):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f""" UPDATE bienes SET
-                                Inv = ?
-            WHERE CodPat = {id} OR CodInt = {id}
-            """
-    try: 
+    id_str = str(id).strip()
+    try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite, data)
+        inv_val = data[0] if isinstance(data, (list, tuple)) else data
+        mirror_inventario(cur, id_str, inv_val)
         conn_sqlite.commit()
+        disparar_sincronizacion_background()
     except Error as e:
         print("Error updating data: " + str(e))
     finally:
@@ -1310,16 +1641,41 @@ def update_inventario(id, data):
 
 def importar_inventario(data):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f""" UPDATE bienes Set
-                    Inv = ?, DenBien = ?,
-                    FechInv = ?, Marca = ?, Modelo = ?, Serie = ?, Color = ?, Tipo = ?, Estado = ?, Dimension = ?,
-                    Obs = ?, Otros = ?, Situacion = ?, NroDocAdq = ?, FechAdq = ?, Inventariador = ?, Equipo = ?, Nota = ?
-                WHERE CodInt = ?
-                """
     try:
         cur = conn_sqlite.cursor()
-        cur.executemany(sql_sqlite, data)
+        for row in data:
+            if len(row) >= 19:
+                codint = row[18]
+                inv_val = row[0]
+                fech_inv = str(row[2] or "").lstrip("'")
+                inv_usr = row[15]
+                equipo_val = row[16]
+                mirror_inventario(
+                    cur,
+                    codint,
+                    inv_val,
+                    fech_inv=fech_inv,
+                    inventariador=inv_usr,
+                    equipo=equipo_val,
+                )
+                mirror_detalles(cur, codint, {
+                    "denominacion": row[1],
+                    "marca": row[3],
+                    "modelo": row[4],
+                    "serie": row[5],
+                    "color": row[6],
+                    "tipo": row[7],
+                    "estado": row[8],
+                    "dimension": row[9],
+                    "observacion": row[10],
+                    "otros": row[11],
+                    "situacion": row[12],
+                    "nro_doc_adq": row[13],
+                    "fech_adq": row[14],
+                    "nota": row[17],
+                })
         conn_sqlite.commit()
+        disparar_sincronizacion_background()
     except Error as e:
         print("Error updating data: " + str(e))
     finally:
@@ -1431,53 +1787,119 @@ def validad_inv():
 
 def analisis_1(valor):
     conn_sqlite = iniciar_conexion_sqlite()
-    # Por el estado de conservacion
+    # 1. Por ubicación (optimizado con CTEs de una sola pasada sobre inventory_records y surplus)
     if valor == 1:
-        sql_sqlite = """   SELECT Acta, local, area, oficina, 
-                        SUM(CASE WHEN bienes.ActaAnt=personal.Acta THEN 1 ELSE 0 END) AS TBienes,
-                        (SELECT COUNT(*) FROM bienes WHERE bienes.Inv=personal.Acta AND bienes.Inv <> '') AS TInventariados,
-                        SUM(CASE WHEN bienes.Inv='' THEN 1 ELSE 0 END) AS TFaltantes,
-                        (SELECT COUNT(*) FROM sobrantes WHERE sobrantes.acta=personal.Acta) AS TSobrantes
-                    FROM personal 
-                    LEFT JOIN bienes ON bienes.ActaAnt=personal.Acta
-                    GROUP BY personal.Acta
-
-                    """
-    # Por cuenta contable
+        sql_sqlite = """
+            WITH b_ant AS (
+                SELECT
+                    CAST(codigo_ubicacion_inicial AS TEXT) AS acta_key,
+                    COUNT(*) AS total_bienes,
+                    SUM(CASE WHEN COALESCE(inventariado, 0) = 0 OR COALESCE(CAST(codigo_ubicacion_final AS TEXT), '') IN ('', '0') THEN 1 ELSE 0 END) AS total_faltantes
+                FROM inventory_records
+                GROUP BY CAST(codigo_ubicacion_inicial AS TEXT)
+            ),
+            b_inv AS (
+                SELECT
+                    CAST(codigo_ubicacion_final AS TEXT) AS acta_key,
+                    COUNT(*) AS total_inv
+                FROM inventory_records
+                WHERE COALESCE(inventariado, 0) = 1
+                  AND COALESCE(CAST(codigo_ubicacion_final AS TEXT), '') NOT IN ('', '0')
+                GROUP BY CAST(codigo_ubicacion_final AS TEXT)
+            ),
+            s_agg AS (
+                SELECT
+                    CAST(codigo_ubicacion AS TEXT) AS acta_key,
+                    COUNT(*) AS total_sobr
+                FROM surplus
+                GROUP BY CAST(codigo_ubicacion AS TEXT)
+            )
+            SELECT
+                p.Acta,
+                p.local,
+                p.area,
+                p.oficina,
+                COALESCE(ba.total_bienes, 0) AS TBienes,
+                COALESCE(bi.total_inv, 0) AS TInventariados,
+                COALESCE(ba.total_faltantes, 0) AS TFaltantes,
+                COALESCE(sa.total_sobr, 0) AS TSobrantes
+            FROM personal p
+            LEFT JOIN b_ant ba ON ba.acta_key = CAST(p.Acta AS TEXT)
+            LEFT JOIN b_inv bi ON bi.acta_key = CAST(p.Acta AS TEXT)
+            LEFT JOIN s_agg sa ON sa.acta_key = CAST(p.Acta AS TEXT)
+        """
+    # 2. Por cuenta contable (1 sola pasada con agregación condicional en lugar de 4 subconsultas correlacionadas)
     elif valor == 2:
-        sql_sqlite =f"""SELECT SUBSTR(CtaCont, 1,4) AS Cuenta, CtaCont, DenCta, printf("%.2f", SUM(ValAdq)) AS ValorPat, COUNT(CtaCont) AS CantPat, 
-                        printf("%.2f",(SELECT SUM(ValAdq) FROM bienes WHERE bienes.Inv <> '' AND bienes.CtaCont = b.CtaCont GROUP BY CtaCont)) AS SumaValAdq,
-                        IFNULL((SELECT COUNT(ValAdq) FROM bienes WHERE bienes.Inv <> '' AND bienes.CtaCont = b.CtaCont GROUP BY CtaCont),0) AS CuentaBInv,
-                        printf("%.2f",(SELECT SUM(ValAdq) FROM bienes WHERE bienes.Inv = '' AND bienes.CtaCont = b.CtaCont GROUP BY CtaCont)) AS SumaFalt,
-                        IFNULL((SELECT COUNT(ValAdq) FROM bienes WHERE bienes.Inv = '' AND bienes.CtaCont = b.CtaCont GROUP BY CtaCont),0) AS CuentaFalt
-                        FROM bienes b
-                        GROUP BY CtaCont;
-                    """
-    # Por denominacion del bien
+        sql_sqlite = """
+            SELECT
+                SUBSTR(COALESCE(cuenta_contable, ''), 1, 4) AS Cuenta,
+                COALESCE(cuenta_contable, '') AS CtaCont,
+                COALESCE(denominacion_cuenta, '') AS DenCta,
+                printf("%.2f", COALESCE(SUM(COALESCE(val_adq, 0)), 0)) AS ValorPat,
+                COUNT(*) AS CantPat,
+                printf("%.2f", COALESCE(SUM(CASE WHEN COALESCE(inventariado, 0) = 1 AND COALESCE(CAST(codigo_ubicacion_final AS TEXT), '') NOT IN ('', '0') THEN COALESCE(val_adq, 0) ELSE 0 END), 0)) AS SumaValAdq,
+                SUM(CASE WHEN COALESCE(inventariado, 0) = 1 AND COALESCE(CAST(codigo_ubicacion_final AS TEXT), '') NOT IN ('', '0') THEN 1 ELSE 0 END) AS CuentaBInv,
+                printf("%.2f", COALESCE(SUM(CASE WHEN COALESCE(inventariado, 0) = 0 OR COALESCE(CAST(codigo_ubicacion_final AS TEXT), '') IN ('', '0') THEN COALESCE(val_adq, 0) ELSE 0 END), 0)) AS SumaFalt,
+                SUM(CASE WHEN COALESCE(inventariado, 0) = 0 OR COALESCE(CAST(codigo_ubicacion_final AS TEXT), '') IN ('', '0') THEN 1 ELSE 0 END) AS CuentaFalt
+            FROM inventory_records
+            GROUP BY COALESCE(cuenta_contable, '');
+        """
+    # 3. Por denominación del bien (1 sola pasada con agregación condicional)
     elif valor == 3:
-        sql_sqlite = f"""SELECT DenBien,
-                printf("%.2f", SUM(ValAdq)) AS ValorPat, 
-                COUNT(CtaCont) AS CantPat,
-                
-                printf("%.2f",(SELECT SUM(ValAdq) FROM bienes WHERE bienes.Inv <> '' AND bienes.DenBien = b.DenBien GROUP BY DenBien)) AS SumaValAdq,
-                IFNULL((SELECT COUNT(ValAdq) FROM bienes WHERE bienes.Inv <> '' AND bienes.DenBien = b.DenBien GROUP BY DenBien),0) AS CuentaBInv,
-                
-                printf("%.2f",(SELECT SUM(ValAdq) FROM bienes WHERE bienes.Inv = '' AND bienes.DenBien = b.DenBien GROUP BY DenBien)) AS SumaFalt,
-                IFNULL((SELECT COUNT(ValAdq) FROM bienes WHERE bienes.Inv = '' AND bienes.DenBien = b.DenBien GROUP BY DenBien),0) AS CuentaFalt
-        FROM bienes b
-        GROUP BY DenBien;
-                    """
+        sql_sqlite = """
+            SELECT
+                COALESCE(denominacion, '') AS DenBien,
+                printf("%.2f", COALESCE(SUM(COALESCE(val_adq, 0)), 0)) AS ValorPat,
+                COUNT(*) AS CantPat,
+                printf("%.2f", COALESCE(SUM(CASE WHEN COALESCE(inventariado, 0) = 1 AND COALESCE(CAST(codigo_ubicacion_final AS TEXT), '') NOT IN ('', '0') THEN COALESCE(val_adq, 0) ELSE 0 END), 0)) AS SumaValAdq,
+                SUM(CASE WHEN COALESCE(inventariado, 0) = 1 AND COALESCE(CAST(codigo_ubicacion_final AS TEXT), '') NOT IN ('', '0') THEN 1 ELSE 0 END) AS CuentaBInv,
+                printf("%.2f", COALESCE(SUM(CASE WHEN COALESCE(inventariado, 0) = 0 OR COALESCE(CAST(codigo_ubicacion_final AS TEXT), '') IN ('', '0') THEN COALESCE(val_adq, 0) ELSE 0 END), 0)) AS SumaFalt,
+                SUM(CASE WHEN COALESCE(inventariado, 0) = 0 OR COALESCE(CAST(codigo_ubicacion_final AS TEXT), '') IN ('', '0') THEN 1 ELSE 0 END) AS CuentaFalt
+            FROM inventory_records
+            GROUP BY COALESCE(denominacion, '');
+        """
+    # 4. Por usuario / responsable (optimizado con CTEs de una sola pasada)
     elif valor == 4:
-        sql_sqlite = f"""   SELECT nombre||' '||apellidoPat||' '||apellidoMat AS usuario, local, area, oficina, 
-                        SUM(CASE WHEN bienes.ActaAnt=personal.Acta THEN 1 ELSE 0 END) AS TBienes,
-                        (SELECT COUNT(*) FROM bienes WHERE bienes.Inv=personal.Acta AND bienes.Inv <> '') AS TInventariados,
-                        SUM(CASE WHEN bienes.Inv='' THEN 1 ELSE 0 END) AS TFaltantes,
-                        (SELECT COUNT(*) FROM sobrantes WHERE sobrantes.acta=personal.Acta) AS TSobrantes
-                    FROM personal 
-                    LEFT JOIN bienes ON bienes.ActaAnt=personal.Acta
-                    GROUP BY usuario
-
-                    """
+        sql_sqlite = """
+            WITH b_ant AS (
+                SELECT
+                    CAST(codigo_ubicacion_inicial AS TEXT) AS acta_key,
+                    COUNT(*) AS total_bienes,
+                    SUM(CASE WHEN COALESCE(inventariado, 0) = 0 OR COALESCE(CAST(codigo_ubicacion_final AS TEXT), '') IN ('', '0') THEN 1 ELSE 0 END) AS total_faltantes
+                FROM inventory_records
+                GROUP BY CAST(codigo_ubicacion_inicial AS TEXT)
+            ),
+            b_inv AS (
+                SELECT
+                    CAST(codigo_ubicacion_final AS TEXT) AS acta_key,
+                    COUNT(*) AS total_inv
+                FROM inventory_records
+                WHERE COALESCE(inventariado, 0) = 1
+                  AND COALESCE(CAST(codigo_ubicacion_final AS TEXT), '') NOT IN ('', '0')
+                GROUP BY CAST(codigo_ubicacion_final AS TEXT)
+            ),
+            s_agg AS (
+                SELECT
+                    CAST(codigo_ubicacion AS TEXT) AS acta_key,
+                    COUNT(*) AS total_sobr
+                FROM surplus
+                GROUP BY CAST(codigo_ubicacion AS TEXT)
+            )
+            SELECT
+                p.nombre || ' ' || p.apellidoPat || ' ' || p.apellidoMat AS usuario,
+                p.local,
+                p.area,
+                p.oficina,
+                SUM(COALESCE(ba.total_bienes, 0)) AS TBienes,
+                SUM(COALESCE(bi.total_inv, 0)) AS TInventariados,
+                SUM(COALESCE(ba.total_faltantes, 0)) AS TFaltantes,
+                SUM(COALESCE(sa.total_sobr, 0)) AS TSobrantes
+            FROM personal p
+            LEFT JOIN b_ant ba ON ba.acta_key = CAST(p.Acta AS TEXT)
+            LEFT JOIN b_inv bi ON bi.acta_key = CAST(p.Acta AS TEXT)
+            LEFT JOIN s_agg sa ON sa.acta_key = CAST(p.Acta AS TEXT)
+            GROUP BY usuario
+        """
 
     try:
         cur = conn_sqlite.cursor()
@@ -1527,14 +1949,20 @@ def reporte_01(valor):
         sql_sqlite =f"""SELECT CodInt, CodPat, DenBien, local ||" - "|| area ||" - "|| oficina AS Ubicacion, Estado, Marca, Modelo, Serie, Color, Tipo, Resolucion FROM baja INNER JOIN personal ON personal.Acta = baja.Inv
                     """
     elif valor == 10: # Conciliacion de Inventario
-        sql_sqlite =f"""SELECT SUBSTR(CtaCont, 1,4) AS Cuenta, CtaCont, DenCta, printf("%.2f", SUM(ValAdq)) AS ValorPat, COUNT(CtaCont) AS CantPat, 
-                        printf("%.2f",(SELECT SUM(ValAdq) FROM bienes WHERE bienes.Inv <> '' AND bienes.CtaCont = b.CtaCont GROUP BY CtaCont)) AS SumaValAdq,
-                        IFNULL((SELECT COUNT(ValAdq) FROM bienes WHERE bienes.Inv <> '' AND bienes.CtaCont = b.CtaCont GROUP BY CtaCont),0) AS CuentaBInv,
-                        printf("%.2f",(SELECT SUM(ValAdq) FROM bienes WHERE bienes.Inv = '' AND bienes.CtaCont = b.CtaCont GROUP BY CtaCont)) AS SumaFalt,
-                        IFNULL((SELECT COUNT(ValAdq) FROM bienes WHERE bienes.Inv = '' AND bienes.CtaCont = b.CtaCont GROUP BY CtaCont),0) AS CuentaFalt
-                        FROM bienes b
-                        GROUP BY CtaCont;
-                    """
+        sql_sqlite = """
+            SELECT
+                SUBSTR(COALESCE(cuenta_contable, ''), 1, 4) AS Cuenta,
+                COALESCE(cuenta_contable, '') AS CtaCont,
+                COALESCE(denominacion_cuenta, '') AS DenCta,
+                printf("%.2f", COALESCE(SUM(COALESCE(val_adq, 0)), 0)) AS ValorPat,
+                COUNT(*) AS CantPat,
+                printf("%.2f", COALESCE(SUM(CASE WHEN COALESCE(inventariado, 0) = 1 AND COALESCE(CAST(codigo_ubicacion_final AS TEXT), '') NOT IN ('', '0') THEN COALESCE(val_adq, 0) ELSE 0 END), 0)) AS SumaValAdq,
+                SUM(CASE WHEN COALESCE(inventariado, 0) = 1 AND COALESCE(CAST(codigo_ubicacion_final AS TEXT), '') NOT IN ('', '0') THEN 1 ELSE 0 END) AS CuentaBInv,
+                printf("%.2f", COALESCE(SUM(CASE WHEN COALESCE(inventariado, 0) = 0 OR COALESCE(CAST(codigo_ubicacion_final AS TEXT), '') IN ('', '0') THEN COALESCE(val_adq, 0) ELSE 0 END), 0)) AS SumaFalt,
+                SUM(CASE WHEN COALESCE(inventariado, 0) = 0 OR COALESCE(CAST(codigo_ubicacion_final AS TEXT), '') IN ('', '0') THEN 1 ELSE 0 END) AS CuentaFalt
+            FROM inventory_records
+            GROUP BY COALESCE(cuenta_contable, '');
+        """
         
     elif valor == 11: # Bienes que requieren actualización tecnica
         sql_sqlite =f"""
@@ -1636,14 +2064,37 @@ def selec_vehiculos_tab1(codigo):
         
 def actualizar_vehiculo(codigo, data):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f"""UPDATE vehiculos SET 
+    codigo_str = str(codigo).strip()
+    sql_sqlite = """
+        UPDATE vehiculos SET 
             Entidad=?, DenBien=?, NroPlaca=?, Carroceria=?, Marca=?, Modelo=?, Categoria=?, NroChasis=?, NroEjes=?,
             NroMotor=?, NroSerie=?, AFab=?, Color=?, Combustible=?, Transm=?, Cilindrada=?, Kilometraje=?,
-            NroTarjVehi=? WHERE CodPat = '{codigo}' OR CodInt = '{codigo}' """
+            NroTarjVehi=?
+        WHERE CodPat = ? OR CAST(CodInt AS TEXT) = ?
+    """
     try: 
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite, data)
+        params = list(data) + [codigo_str, codigo_str]
+        cur.execute(sql_sqlite, params)
+        if cur.rowcount == 0:
+            # Si aún no existía en la tabla vehiculos, lo creamos buscando su CodInt/CodPat desde bienes
+            cur.execute(
+                "SELECT CodInt, CodPat FROM bienes WHERE CodPat = ? OR CAST(CodInt AS TEXT) = ? LIMIT 1",
+                (codigo_str, codigo_str),
+            )
+            b_row = cur.fetchone()
+            cod_int_val = b_row[0] if b_row else codigo_str
+            cod_pat_val = b_row[1] if b_row else codigo_str
+            cur.execute("""
+                INSERT OR REPLACE INTO vehiculos (
+                    CodInt, CodPat, Entidad, DenBien, NroPlaca, Carroceria, Marca, Modelo,
+                    Categoria, NroChasis, NroEjes, NroMotor, NroSerie, AFab, Color,
+                    Combustible, Transm, Cilindrada, Kilometraje, NroTarjVehi
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, [cod_int_val, cod_pat_val] + list(data))
+        mirror_vehiculo(cur, codigo_str, data)
         conn_sqlite.commit()
+        disparar_sincronizacion_background()
     except Error as e:
         print("Error al ingresar datos: " + str(e))
     finally:
@@ -1822,26 +2273,49 @@ def select_equipo(equi):
             conn_sqlite.close()
         
 def datos_iniciales():
+    """Devuelve (id, entidad, periodo, fecha) desde la BD. Si la tabla datos esta vacia, lee config.ini."""
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f""" SELECT * FROM datos """
+    sql_sqlite = """ SELECT * FROM datos """
     try:
         cur = conn_sqlite.cursor()
         cur.execute(sql_sqlite)
         books = cur.fetchone()
-        return books
+        if books and (books[1] or books[2]):
+            return books
     except Error as e:
         print("Error selecting mostrar datos: " + str(e))
     finally:
         if conn_sqlite:
             cur.close()
             conn_sqlite.close()
-        
+
+    # Respaldo: leer desde config.ini si la tabla datos esta vacia
+    cfg_path = "config.ini"
+    if os.path.exists(cfg_path):
+        try:
+            cfg = configparser.ConfigParser()
+            cfg.read(cfg_path, encoding="utf-8")
+            if "Settings" in cfg:
+                ent = cfg["Settings"].get("entidad", "")
+                per = cfg["Settings"].get("periodo", "")
+                if ent or per:
+                    return ("1", ent, per, "")
+        except Exception:
+            pass
+    return ("1", "", "", "")
+
 def actualizar_datos(codigo, data):
+    """Guarda entidad, periodo y fecha. Usa INSERT OR REPLACE para manejar BD vacias.
+    Tambien sincroniza config.ini para que label_gen pueda leerlo como respaldo."""
+    entidad = str(data[0]) if len(data) > 0 else ""
+    periodo = str(data[1]) if len(data) > 1 else ""
+    fecha   = str(data[2]) if len(data) > 2 else ""
+
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f"""UPDATE datos SET entidad=?, periodo=?, fecha=? WHERE id = '{codigo}' """
-    try: 
+    sql_sqlite = """INSERT OR REPLACE INTO datos (id, entidad, periodo, fecha) VALUES (?, ?, ?, ?)"""
+    try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite, data)
+        cur.execute(sql_sqlite, (str(codigo), entidad, periodo, fecha))
         conn_sqlite.commit()
     except Error as e:
         print("Error al actualizar datos: " + str(e))
@@ -1849,6 +2323,21 @@ def actualizar_datos(codigo, data):
         if conn_sqlite:
             cur.close()
             conn_sqlite.close()
+
+    # Sincronizar config.ini como respaldo para label_gen
+    cfg_path = "config.ini"
+    try:
+        cfg = configparser.ConfigParser()
+        if os.path.exists(cfg_path):
+            cfg.read(cfg_path, encoding="utf-8")
+        if "Settings" not in cfg:
+            cfg["Settings"] = {}
+        cfg["Settings"]["entidad"] = entidad
+        cfg["Settings"]["periodo"] = periodo
+        with open(cfg_path, "w", encoding="utf-8") as f:
+            cfg.write(f)
+    except Exception as e:
+        print(f"Advertencia: no se pudo sincronizar config.ini: {e}")
 
 def datos_exif(codigo):
     conn_sqlite = iniciar_conexion_sqlite()
@@ -1894,21 +2383,21 @@ def datos_telefono(codigo):
 
 def actualizar_detalles_app(id, data):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f""" UPDATE bienes SET
-                                Marca = ?,
-                                Modelo = ?,
-                                Serie = ?,
-                                Tipo = ?,
-                                Color = ?,
-                                Dimension = ?,
-                                Estado = ?,
-                                Situacion = ?
-            WHERE CodPat = {id} OR CodInt = {id}
-            """
-    try: 
+    id_str = str(id).strip()
+    try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite, data)
+        mirror_detalles(cur, id_str, {
+            "marca": data[0] if len(data) > 0 else "",
+            "modelo": data[1] if len(data) > 1 else "",
+            "serie": data[2] if len(data) > 2 else "",
+            "tipo": data[3] if len(data) > 3 else "",
+            "color": data[4] if len(data) > 4 else "",
+            "dimension": data[5] if len(data) > 5 else "",
+            "estado": data[6] if len(data) > 6 else "",
+            "situacion": data[7] if len(data) > 7 else "",
+        })
         conn_sqlite.commit()
+        disparar_sincronizacion_background()
     except Error as e:
         print("Error updating data: " + str(e))
     finally:
@@ -1936,11 +2425,23 @@ def validar(cod):
 
 def registrar_en_inventario(codigo, data):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f""" UPDATE bienes SET Inv = ?, FechInv = ?, Inventariador = ?, Equipo = ? WHERE CodInt = {codigo} """
+    cod_str = str(codigo).strip()
     try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite, data)
+        inv_val = data[0] if len(data) > 0 else ""
+        fech_val = data[1] if len(data) > 1 else None
+        inv_usr = data[2] if len(data) > 2 else ""
+        equipo_val = data[3] if len(data) > 3 else ""
+        mirror_inventario(
+            cur,
+            cod_str,
+            inv_val,
+            fech_inv=fech_val,
+            inventariador=inv_usr,
+            equipo=equipo_val,
+        )
         conn_sqlite.commit()
+        disparar_sincronizacion_background()
     except Error as e:
         print("Error selecting: " + str(e))
     finally:
@@ -2009,13 +2510,18 @@ def datos_responsable(ficha):
 def datos_codigo(codigo):
     conn_sqlite = iniciar_conexion_sqlite()
     conn_sqlite.row_factory = sqlite3.Row
-    sql_sqlite = f"""SELECT CodInt, CodPat, DenBien, 
-    personal.local ||' '|| personal.area ||' '|| personal.oficina as Ubicacion,
-    Marca, Modelo, Serie, Color, Tipo, Dimension, Estado, Situacion FROM personal INNER JOIN bienes ON bienes.ActaAnt = personal.Acta
-    WHERE CodInt AND CodPat = {codigo} """
+    cod_str = str(codigo).strip()
+    sql_sqlite = """
+        SELECT CodInt, CodPat, DenBien, 
+               COALESCE(personal.local || ' ' || personal.area || ' ' || personal.oficina, '') AS Ubicacion,
+               Marca, Modelo, Serie, Color, Tipo, Dimension, Estado, Situacion
+        FROM bienes
+        LEFT JOIN personal ON bienes.ActaAnt = personal.Acta
+        WHERE CAST(bienes.CodInt AS TEXT) = ? OR bienes.CodPat = ?
+    """
     try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite)
+        cur.execute(sql_sqlite, (cod_str, cod_str))
         fila = cur.fetchone()
         if fila:
             resultado = dict(fila)
@@ -2031,21 +2537,21 @@ def datos_codigo(codigo):
 
 def update_codigo(codigo, data):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f""" UPDATE bienes SET
-                                Marca = ?,
-                                Modelo = ?,
-                                Serie = ?,
-                                Color = ?,
-                                Tipo = ?,
-                                Dimension = ?,
-                                Estado = ?,
-                                Situacion = ?
-            WHERE CodPat = {codigo} OR CodInt = {codigo}
-            """
-    try: 
+    cod_str = str(codigo).strip()
+    try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite, data)
+        mirror_detalles(cur, cod_str, {
+            "marca": data[0] if len(data) > 0 else "",
+            "modelo": data[1] if len(data) > 1 else "",
+            "serie": data[2] if len(data) > 2 else "",
+            "color": data[3] if len(data) > 3 else "",
+            "tipo": data[4] if len(data) > 4 else "",
+            "dimension": data[5] if len(data) > 5 else "",
+            "estado": data[6] if len(data) > 6 else "",
+            "situacion": data[7] if len(data) > 7 else "",
+        })
         conn_sqlite.commit()
+        disparar_sincronizacion_background()
     except Error as e:
         print("Error updating data: " + str(e))
     finally:
@@ -2435,44 +2941,34 @@ def obtener_id_inventory_record(codigo):
 
 def registrar_inventario_local_pendiente(codigo, record_id, acta_destino, fecha,
                                          usuario, equipo, user_id):
-    """Registra un inventario en SQLite y lo deja listo para sincronizar.
-
-    La actualización de ``bienes``, ``inventory_records`` y la cola se realiza
-    en una sola transacción: o quedan las tres, o no queda ninguna.
-    """
+    """Registra un inventario directamente sobre `inventory_records` y lo encola en `inventory_sync_outbox`."""
     conn_sqlite = iniciar_conexion_sqlite()
     try:
         cur = conn_sqlite.cursor()
-        codigo = str(codigo).strip()
+        codigo_str = str(codigo).strip()
         cur.execute("""
-            UPDATE bienes
-            SET Inv = ?, FechInv = ?, Inventariador = ?, Equipo = ?
-            WHERE CodPat = ? OR CAST(CodInt AS TEXT) = ?
-        """, (str(acta_destino), fecha, str(usuario), str(equipo), codigo, codigo))
-        if cur.rowcount != 1:
-            raise ValueError("El bien ya fue registrado localmente o no existe.")
-
-        cur.execute("""
-            UPDATE inventory_records
-            SET codigo_ubicacion_final = ?, inventariado = 1, user_id = ?,
-                fecha_inventariado = ?, fecha_servidor = NULL
-            WHERE id = ? AND COALESCE(inventariado, 0) = 0
-        """, (str(acta_destino), int(user_id), fecha, int(record_id)))
-        if cur.rowcount != 1:
+            SELECT COALESCE(inventariado, 0) FROM inventory_records
+            WHERE id = ? OR codigo_patrimonial = ? OR CAST(codigo_interno AS TEXT) = ?
+            LIMIT 1
+        """, (int(record_id or 0), codigo_str, codigo_str))
+        row = cur.fetchone()
+        if not row:
             raise ValueError("No se encontró el registro local de inventario.")
+        if int(row[0] or 0) == 1:
+            raise ValueError("El bien ya fue registrado localmente.")
 
-        cur.execute("""
-            INSERT INTO inventory_sync_outbox (
-                record_id, codigo_ubicacion_final, user_id, created_at, status
-            ) VALUES (?, ?, ?, ?, 'pending')
-            ON CONFLICT(record_id) DO UPDATE SET
-                codigo_ubicacion_final = excluded.codigo_ubicacion_final,
-                user_id = excluded.user_id,
-                created_at = excluded.created_at,
-                attempts = 0,
-                last_error = NULL,
-                status = 'pending'
-        """, (int(record_id), str(acta_destino), int(user_id), fecha))
+        affected = mirror_inventario(
+            cur,
+            codigo_str,
+            acta_destino,
+            fech_inv=fecha,
+            user_id=int(user_id or 1),
+            inventariador=str(usuario or ""),
+            equipo=str(equipo or ""),
+        )
+        if affected == 0:
+            raise ValueError("No se pudo actualizar el registro en inventory_records.")
+
         conn_sqlite.commit()
         return {"success": True}
     except Exception as error:
@@ -2484,59 +2980,5 @@ def registrar_inventario_local_pendiente(codigo, record_id, acta_destino, fecha,
 
 
 def sincronizar_inventarios_pendientes(api_client, limite=50):
-    """Envía la cola local; los fallos de red nunca eliminan registros."""
-    if api_client is None:
-        return {"synced": 0, "pending": 0, "message": "Cliente API no disponible."}
-
-    conn_sqlite = iniciar_conexion_sqlite()
-    synced = 0
-    try:
-        cur = conn_sqlite.cursor()
-        cur.execute("""
-            SELECT id, record_id, codigo_ubicacion_final, user_id
-            FROM inventory_sync_outbox
-            WHERE status = 'pending'
-            ORDER BY id
-            LIMIT ?
-        """, (limite,))
-        pendientes = cur.fetchall()
-
-        for outbox_id, record_id, ubicacion, user_id in pendientes:
-            try:
-                respuesta = api_client.update_ubicacion_final(record_id, ubicacion, user_id)
-                status = respuesta.get("status_code")
-                detalle = respuesta.get("data", {}).get("message", "Error de sincronización")
-            except Exception as error:
-                status, detalle = None, str(error)
-
-            if status in (200, 201):
-                cur.execute("DELETE FROM inventory_sync_outbox WHERE id = ?", (outbox_id,))
-                cur.execute("""
-                    UPDATE inventory_records
-                    SET fecha_servidor = ? WHERE id = ?
-                """, (datetime.now().strftime("%Y-%m-%d %H:%M:%S"), record_id))
-                synced += 1
-            elif status == 409:
-                # No se reintenta automáticamente un conflicto: requiere revisión.
-                cur.execute("""
-                    UPDATE inventory_sync_outbox
-                    SET status = 'conflict', attempts = attempts + 1, last_error = ?
-                    WHERE id = ?
-                """, (detalle, outbox_id))
-            else:
-                cur.execute("""
-                    UPDATE inventory_sync_outbox
-                    SET attempts = attempts + 1, last_error = ? WHERE id = ?
-                """, (detalle, outbox_id))
-                # Si no hay conexión, evitar demorar la interfaz intentando toda la cola.
-                break
-
-        conn_sqlite.commit()
-        cur.execute("SELECT COUNT(*) FROM inventory_sync_outbox WHERE status = 'pending'")
-        pending = cur.fetchone()[0]
-        return {"synced": synced, "pending": pending}
-    except Exception as error:
-        conn_sqlite.rollback()
-        return {"synced": synced, "pending": 0, "message": str(error)}
-    finally:
-        conn_sqlite.close()
+    """Envía toda la cola local pendiente (inventario, detalles, sobrantes, ubicaciones, personal y fotos)."""
+    return sincronizar_cola_completa(api_client, limite=limite)

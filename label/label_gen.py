@@ -13,6 +13,7 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from db.query import data_label, data_label_ubi, datos_iniciales
 from utils.config_utils import ConfigUtils
+from label.label_layout import get_label_layout
 
 # Resolución térmica estándar en impresoras de etiquetas.
 PRINT_DPI = 203
@@ -37,93 +38,135 @@ if os.path.exists(_ROBOTO_REG_PATH) and os.path.exists(_ROBOTO_BOLD_PATH):
     except Exception:
         pass
 
-def _get_label_styles():
-    return {
-        'denom': ParagraphStyle(
-            name='BatchDenom',
-            fontSize=5,
-            fontName=FONT_REGULAR,
-            alignment=0,
-            borderPadding=1,
-            leading=5
-        ),
-        'cod': ParagraphStyle(
-            name='BatchCod',
-            fontSize=11,
-            fontName=FONT_BOLD,
-            alignment=0,
-            leading=7
-        ),
-        'inv': ParagraphStyle(
-            name='BatchInv',
-            fontSize=6,
-            fontName=FONT_BOLD,
-            alignment=2,
-            charSpace=-5.0
-        ),
-        'cod_p': ParagraphStyle(
-            name='BatchCodP',
-            fontSize=8,
-            fontName=FONT_BOLD,
-            alignment=0,
-            leading=7
-        ),
-        'ubi': ParagraphStyle(
-            name='BatchUbi',
-            fontSize=4,
-            fontName=FONT_REGULAR,
-            alignment=0,
-            leading=5
-        ),
-        'entid': ParagraphStyle(
-            name='BatchEntid',
-            fontSize=5.5,
-            fontName=FONT_REGULAR,
-            alignment=0
-        )
-    }
 
 def _safe_xml(txt):
     return str(txt or '').replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
-def draw_label_page(c, den, codint, codpatr, ubi, inv, entidad, styles, logo_reader=None):
-    qr_payload = str(codpatr).strip() if str(codpatr).strip() else str(codint).strip()
-    qr_image = qrcode.make(qr_payload)
-    qr_buffer = io.BytesIO()
-    qr_image.save(qr_buffer, format='PNG')
-    qr_buffer.seek(0)
 
-    p_denom = Paragraph(_safe_xml(den), styles['denom'])
-    p_cod_i = Paragraph(_safe_xml(codint), styles['cod'])
-    p_inven = Paragraph(_safe_xml(inv), styles['inv'])
-    p_cod_p = Paragraph(_safe_xml(codpatr), styles['cod_p'])
-    p_ubica = Paragraph(_safe_xml(ubi), styles['ubi'])
-    p_entid = Paragraph(_safe_xml(entidad), styles['entid'])
+def draw_label_page(c, den, codint, codpatr, ubi, inv, entidad, styles=None, logo_reader=None, layout=None):
+    """
+    Dibuja una etiqueta en el canvas de ReportLab usando las posiciones y tamaños
+    configurados en el diseño personalizable (o por defecto si layout es None).
+    """
+    if layout is None:
+        layout = get_label_layout()
 
-    # QR
-    c.drawImage(ImageReader(qr_buffer), 31*mm, 4*mm, width=18*mm, height=18*mm, mask='auto')
+    elems = layout.get("elements", {})
+    label_cfg = layout.get("label", {})
+    page_h = float(label_cfg.get("height_mm", 25.0)) * mm
 
-    # Logo
-    if logo_reader is not None:
-        c.drawImage(logo_reader, 1*mm, 19*mm, width=15, height=15, mask='auto')
+    align_map = {'left': 0, 'center': 1, 'right': 2}
 
-    p_denom.wrapOn(c, 30*mm, 10*mm)
-    p_denom.drawOn(c, 2*mm, c._pagesize[1] - 6.5*mm - p_denom.height)
+    # 1. Código QR
+    cfg_qr = elems.get("qr", {})
+    if cfg_qr.get("visible", True):
+        qr_payload = str(codpatr).strip() if str(codpatr).strip() else str(codint).strip()
+        qr_image = qrcode.make(qr_payload)
+        qr_buffer = io.BytesIO()
+        qr_image.save(qr_buffer, format='PNG')
+        qr_buffer.seek(0)
 
-    p_cod_i.wrapOn(c, 12*mm, 8*mm)
-    p_cod_i.drawOn(c, 2*mm, 3.5*mm)
+        qr_w = float(cfg_qr.get("width_mm", 18.0)) * mm
+        qr_h = float(cfg_qr.get("height_mm", 18.0)) * mm
+        qr_x = float(cfg_qr.get("x_mm", 31.0)) * mm
+        qr_y = page_h - (float(cfg_qr.get("y_mm", 3.0)) * mm) - qr_h
+        c.drawImage(ImageReader(qr_buffer), qr_x, qr_y, width=qr_w, height=qr_h, mask='auto')
 
-    p_inven.wrapOn(c, 20*mm, 15*mm)
-    p_inven.drawOn(c, 27*mm, 1*mm)
+    # 2. Logo
+    cfg_logo = elems.get("logo", {})
+    if cfg_logo.get("visible", True) and logo_reader is not None:
+        logo_w = float(cfg_logo.get("width_mm", 5.3)) * mm
+        logo_h = float(cfg_logo.get("height_mm", 5.3)) * mm
+        logo_x = float(cfg_logo.get("x_mm", 1.0)) * mm
+        logo_y = page_h - (float(cfg_logo.get("y_mm", 1.0)) * mm) - logo_h
+        c.drawImage(logo_reader, logo_x, logo_y, width=logo_w, height=logo_h, mask='auto')
 
-    p_cod_p.wrapOn(c, 20*mm, 5.8*mm)
-    p_cod_p.drawOn(c, 2*mm, 10.5*mm)
+    # 3. Entidad
+    cfg_ent = elems.get("entidad", {})
+    if cfg_ent.get("visible", True) and entidad:
+        f_size = float(cfg_ent.get("font_size", 5.5))
+        f_name = FONT_BOLD if cfg_ent.get("font_bold", False) else FONT_REGULAR
+        align = align_map.get(cfg_ent.get("align", "left"), 0)
+        style_ent = ParagraphStyle(name='L_Entid', fontSize=f_size, fontName=f_name, alignment=align, leading=f_size + 1.5)
+        p_entid = Paragraph(_safe_xml(entidad), style_ent)
+        wrap_w = float(cfg_ent.get("max_width_mm", 45.0)) * mm
+        p_entid.wrapOn(c, wrap_w, 8 * mm)
+        ent_x = float(cfg_ent.get("x_mm", 7.0)) * mm
+        ent_y = page_h - (float(cfg_ent.get("y_mm", 1.2)) * mm) - p_entid.height
+        p_entid.drawOn(c, ent_x, ent_y)
 
-    p_ubica.wrapOn(c, 30*mm, 10*mm)
-    p_ubica.drawOn(c, 2*mm, c._pagesize[1] - 15.5*mm - p_ubica.height)
+    # 4. Denominación
+    cfg_den = elems.get("denominacion", {})
+    if cfg_den.get("visible", True) and den:
+        f_size = float(cfg_den.get("font_size", 5.0))
+        f_name = FONT_BOLD if cfg_den.get("font_bold", False) else FONT_REGULAR
+        align = align_map.get(cfg_den.get("align", "left"), 0)
+        style_den = ParagraphStyle(name='L_Denom', fontSize=f_size, fontName=f_name, alignment=align, leading=f_size + 1.2)
+        p_denom = Paragraph(_safe_xml(den), style_den)
+        wrap_w = float(cfg_den.get("max_width_mm", 30.0)) * mm
+        wrap_h = float(cfg_den.get("max_height_mm", 10.0)) * mm
+        p_denom.wrapOn(c, wrap_w, wrap_h)
+        den_x = float(cfg_den.get("x_mm", 2.0)) * mm
+        den_y = page_h - (float(cfg_den.get("y_mm", 6.8)) * mm) - p_denom.height
+        p_denom.drawOn(c, den_x, den_y)
 
-    p_entid.wrapOn(c, 45*mm, 5*mm)
-    p_entid.drawOn(c, 7*mm, 19*mm)
+    # 5. Código Patrimonial
+    cfg_cp = elems.get("cod_patrimonial", {})
+    if cfg_cp.get("visible", True) and codpatr:
+        f_size = float(cfg_cp.get("font_size", 8.0))
+        f_name = FONT_BOLD if cfg_cp.get("font_bold", True) else FONT_REGULAR
+        align = align_map.get(cfg_cp.get("align", "left"), 0)
+        style_cp = ParagraphStyle(name='L_CodP', fontSize=f_size, fontName=f_name, alignment=align, leading=f_size + 1.5)
+        p_cod_p = Paragraph(_safe_xml(codpatr), style_cp)
+        wrap_w = float(cfg_cp.get("max_width_mm", 26.0)) * mm
+        p_cod_p.wrapOn(c, wrap_w, 8 * mm)
+        cp_x = float(cfg_cp.get("x_mm", 2.0)) * mm
+        cp_y = page_h - (float(cfg_cp.get("y_mm", 11.2)) * mm) - p_cod_p.height
+        p_cod_p.drawOn(c, cp_x, cp_y)
+
+    # 6. Ubicación / Oficina
+    cfg_ubi = elems.get("ubicacion", {})
+    if cfg_ubi.get("visible", True) and ubi:
+        f_size = float(cfg_ubi.get("font_size", 4.0))
+        f_name = FONT_BOLD if cfg_ubi.get("font_bold", False) else FONT_REGULAR
+        align = align_map.get(cfg_ubi.get("align", "left"), 0)
+        style_ubi = ParagraphStyle(name='L_Ubi', fontSize=f_size, fontName=f_name, alignment=align, leading=f_size + 1.2)
+        p_ubica = Paragraph(_safe_xml(ubi), style_ubi)
+        wrap_w = float(cfg_ubi.get("max_width_mm", 28.0)) * mm
+        wrap_h = float(cfg_ubi.get("max_height_mm", 8.0)) * mm
+        p_ubica.wrapOn(c, wrap_w, wrap_h)
+        ubi_x = float(cfg_ubi.get("x_mm", 2.0)) * mm
+        ubi_y = page_h - (float(cfg_ubi.get("y_mm", 15.2)) * mm) - p_ubica.height
+        p_ubica.drawOn(c, ubi_x, ubi_y)
+
+    # 7. Código Interno
+    cfg_ci = elems.get("cod_interno", {})
+    if cfg_ci.get("visible", True) and codint:
+        f_size = float(cfg_ci.get("font_size", 11.0))
+        f_name = FONT_BOLD if cfg_ci.get("font_bold", True) else FONT_REGULAR
+        align = align_map.get(cfg_ci.get("align", "left"), 0)
+        style_ci = ParagraphStyle(name='L_CodI', fontSize=f_size, fontName=f_name, alignment=align, leading=f_size + 1.5)
+        p_cod_i = Paragraph(_safe_xml(codint), style_ci)
+        wrap_w = float(cfg_ci.get("max_width_mm", 20.0)) * mm
+        p_cod_i.wrapOn(c, wrap_w, 10 * mm)
+        ci_x = float(cfg_ci.get("x_mm", 2.0)) * mm
+        ci_y = page_h - (float(cfg_ci.get("y_mm", 18.2)) * mm) - p_cod_i.height
+        p_cod_i.drawOn(c, ci_x, ci_y)
+
+    # 8. Inventario / Periodo
+    cfg_inv = elems.get("inventario", {})
+    if cfg_inv.get("visible", True) and inv:
+        f_size = float(cfg_inv.get("font_size", 6.0))
+        f_name = FONT_BOLD if cfg_inv.get("font_bold", True) else FONT_REGULAR
+        align = align_map.get(cfg_inv.get("align", "right"), 2)
+        style_inv = ParagraphStyle(name='L_Inv', fontSize=f_size, fontName=f_name, alignment=align, leading=f_size + 1.2)
+        p_inven = Paragraph(_safe_xml(inv), style_inv)
+        wrap_w = float(cfg_inv.get("max_width_mm", 25.0)) * mm
+        p_inven.wrapOn(c, wrap_w, 8 * mm)
+        inv_x = float(cfg_inv.get("x_mm", 24.0)) * mm
+        inv_y = page_h - (float(cfg_inv.get("y_mm", 21.0)) * mm) - p_inven.height
+        p_inven.drawOn(c, inv_x, inv_y)
+
 
 def _cargar_logo_reader(direccion):
     if direccion and len(direccion) > 0 and os.path.exists(direccion[0]):
@@ -140,10 +183,65 @@ def _cargar_logo_reader(direccion):
             print(f"Error cargando logo para etiqueta: {e}")
     return None
 
+
+def generate_sample_label_pdf(layout=None, sample_data=None, output_path=None):
+    """
+    Genera un archivo PDF con datos de muestra usando el diseño indicado.
+    Útil para el editor y diseñador de etiquetas.
+    """
+    if layout is None:
+        layout = get_label_layout()
+
+    if output_path is None:
+        pathinit = 'labels/samples/'
+        os.makedirs(pathinit, exist_ok=True)
+        output_path = os.path.join(pathinit, "sample_preview.pdf")
+    else:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    config_instance = ConfigUtils()
+    direccion = config_instance.load_config()
+    datos_ini = datos_iniciales()
+    entidad_default = str(datos_ini[1]) if (datos_ini and len(datos_ini) > 1 and datos_ini[1]) else "MUNICIPALIDAD EJEMPLO"
+    inv_default = 'INVENTARIO ' + str(datos_ini[2]) if (datos_ini and len(datos_ini) > 2 and datos_ini[2]) else "INVENTARIO 2026"
+
+    if sample_data is None:
+        sample_data = {
+            "entidad": entidad_default,
+            "den": "COMPUTADORA PORTATIL CORE I7",
+            "codint": "1052",
+            "codpatr": "740899990001",
+            "ubi": "ALMACEN CENTRAL - OFICINA 101",
+            "inv": inv_default
+        }
+
+    w_mm = float(layout.get("label", {}).get("width_mm", 50.0))
+    h_mm = float(layout.get("label", {}).get("height_mm", 25.0))
+
+    c = canvas.Canvas(output_path)
+    c.setPageSize((w_mm * mm, h_mm * mm))
+
+    logo_reader = _cargar_logo_reader(direccion)
+
+    draw_label_page(
+        c,
+        sample_data.get("den", ""),
+        sample_data.get("codint", ""),
+        sample_data.get("codpatr", ""),
+        sample_data.get("ubi", ""),
+        sample_data.get("inv", ""),
+        sample_data.get("entidad", ""),
+        logo_reader=logo_reader,
+        layout=layout
+    )
+    c.showPage()
+    c.save()
+    return output_path
+
+
 def build_label(valor, codigo, codact, oficina_personalizada=None):
     config_instance = ConfigUtils()
     direccion = config_instance.load_config()
-
     datos_ini = datos_iniciales()
 
     r = data_label(codigo)
@@ -157,10 +255,10 @@ def build_label(valor, codigo, codact, oficina_personalizada=None):
         ubi = str(j[0][0]) if (j and len(j) > 0 and len(j[0]) > 0 and j[0][0] is not None) else ""
     den = str(r[0][2])
     codint = str(r[0][0])
-    inv = 'INVENTARIO ' + str(datos_ini[2])
+    inv = 'INVENTARIO ' + str(datos_ini[2]) if (datos_ini and len(datos_ini) > 2) else "INVENTARIO"
     codpatr = str(r[0][1])
 
-    entidad = datos_ini[1]
+    entidad = str(datos_ini[1]) if (datos_ini and len(datos_ini) > 1) else ""
 
     pdf = str(r[0][0]) + "_" + str(r[0][1]) + "_" + str(r[0][3])
     pdf_name = str(pdf) + ".pdf"
@@ -168,13 +266,16 @@ def build_label(valor, codigo, codact, oficina_personalizada=None):
     os.makedirs(pathinit, exist_ok=True)
     pathpdf = os.path.join(pathinit, pdf_name)
 
-    c = canvas.Canvas(pathpdf)
-    c.setPageSize((5*cm, 2.5*cm))
+    layout = get_label_layout()
+    w_mm = float(layout.get("label", {}).get("width_mm", 50.0))
+    h_mm = float(layout.get("label", {}).get("height_mm", 25.0))
 
-    styles = _get_label_styles()
+    c = canvas.Canvas(pathpdf)
+    c.setPageSize((w_mm * mm, h_mm * mm))
+
     logo_reader = _cargar_logo_reader(direccion)
 
-    draw_label_page(c, den, codint, codpatr, ubi, inv, entidad, styles, logo_reader)
+    draw_label_page(c, den, codint, codpatr, ubi, inv, entidad, logo_reader=logo_reader, layout=layout)
     c.showPage()
     try:
         c.save()
@@ -187,6 +288,7 @@ def build_label(valor, codigo, codact, oficina_personalizada=None):
         mb.showerror(message=f"Ha ocurrido un error, revise si el PDF está abierto o que la impresora esté bien configurada:\n{e}", title="Error")
 
     return pathpdf
+
 
 def build_label_batch(items, valor=0, output_name=None, oficina_personalizada_global=None):
     """
@@ -202,7 +304,6 @@ def build_label_batch(items, valor=0, output_name=None, oficina_personalizada_gl
     entidad = str(datos_ini[1]) if (datos_ini and len(datos_ini) > 1) else ""
     inv = 'INVENTARIO ' + str(datos_ini[2]) if (datos_ini and len(datos_ini) > 2) else "INVENTARIO"
 
-    styles = _get_label_styles()
     logo_reader = _cargar_logo_reader(direccion)
 
     pathinit = 'labels/lotes/'
@@ -214,8 +315,13 @@ def build_label_batch(items, valor=0, output_name=None, oficina_personalizada_gl
         output_name += ".pdf"
 
     pathpdf = os.path.join(pathinit, output_name)
+
+    layout = get_label_layout()
+    w_mm = float(layout.get("label", {}).get("width_mm", 50.0))
+    h_mm = float(layout.get("label", {}).get("height_mm", 25.0))
+
     c = canvas.Canvas(pathpdf)
-    c.setPageSize((5*cm, 2.5*cm))
+    c.setPageSize((w_mm * mm, h_mm * mm))
 
     for item in items:
         den = str(item.get('deno', '') or item.get('DenBien', '') or '')
@@ -227,7 +333,7 @@ def build_label_batch(items, valor=0, output_name=None, oficina_personalizada_gl
         else:
             ubi = str(item.get('oficina_etiqueta', '') or item.get('oficina', '') or item.get('oficina_actual', '') or item.get('oficina_anterior', '') or '').strip()
 
-        draw_label_page(c, den, codint, codpatr, ubi, inv, entidad, styles, logo_reader)
+        draw_label_page(c, den, codint, codpatr, ubi, inv, entidad, logo_reader=logo_reader, layout=layout)
         c.showPage()
 
     try:

@@ -1,0 +1,102 @@
+{
+    "label": {
+        "width_mm": 50.0,
+        "height_mm": 25.0,
+        "nombre": "Estándar 50x25 mm"
+    },
+    "elements": {
+        "logo": {
+            "nombre": "Logo de Entidad",
+            "visible": true,
+            "x_mm": 1.0,
+            "y_mm": 1.0,
+            "width_mm": 5.3,
+            "height_mm": 5.3,
+            "color_preview": "#dbeafe"
+        },
+        "entidad": {
+            "nombre": "Nombre de Entidad",
+            "visible": true,
+            "x_mm": 7.0,
+            "y_mm": 1.2,
+            "max_width_mm": 41.0,
+            "font_size": 5.5,
+            "font_bold": false,
+            "align": "left",
+            "sample": "MUNICIPALIDAD PROVINCIAL DE ESPINAR",
+            "color_preview": "#e0e7ff"
+        },
+        "denominacion": {
+            "nombre": "Denominación del Bien",
+            "visible": true,
+            "x_mm": 2.0,
+            "y_mm": 6.8,
+            "max_width_mm": 28.0,
+            "max_height_mm": 7.5,
+            "font_size": 5.0,
+            "font_bold": false,
+            "align": "left",
+            "sample": "COMPUTADORA PORTATIL CORE I7",
+            "color_preview": "#fef3c7"
+        },
+        "cod_patrimonial": {
+            "nombre": "Cód. Patrimonial",
+            "visible": true,
+            "x_mm": 2.0,
+            "y_mm": 11.2,
+            "max_width_mm": 26.0,
+            "font_size": 8.0,
+            "font_bold": true,
+            "align": "left",
+            "sample": "740899990001",
+            "color_preview": "#fee2e2"
+        },
+        "ubicacion": {
+            "nombre": "Oficina / Ubicación",
+            "visible": true,
+            "x_mm": 2.0,
+            "y_mm": 15.2,
+            "max_width_mm": 28.0,
+            "max_height_mm": 6.5,
+            "font_size": 4.0,
+            "font_bold": false,
+            "align": "left",
+            "sample": "ALMACEN CENTRAL - OFICINA 101",
+            "color_preview": "#ecfdf5"
+        },
+        "cod_interno": {
+            "nombre": "Cód. Interno",
+            "visible": true,
+            "x_mm": 2.0,
+            "y_mm": 20.0,
+            "max_width_mm": 20.0,
+            "font_size": 11.0,
+            "font_bold": true,
+            "align": "left",
+            "sample": "1052",
+            "color_preview": "#ffedd5"
+        },
+        "inventario": {
+            "nombre": "Inventario / Periodo",
+            "visible": true,
+            "x_mm": 24.0,
+            "y_mm": 21.0,
+            "max_width_mm": 25.0,
+            "font_size": 6.0,
+            "font_bold": true,
+            "align": "right",
+            "sample": "INVENTARIO 2026",
+            "color_preview": "#f3e8ff"
+        },
+        "qr": {
+            "nombre": "Código QR",
+            "visible": true,
+            "x_mm": 31.0,
+            "y_mm": 3.0,
+            "width_mm": 18.0,
+            "height_mm": 18.0,
+            "sample": "QR CODE",
+            "color_preview": "#f1f5f9"
+        }
+    }
+}

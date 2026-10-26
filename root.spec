@@ -17,8 +17,9 @@ added_files = [
             ('report_actas/', 'report_actas/'),
             ('reportes/*.*', 'reportes/'),
             ('utils/*', 'utils/'),
-            ('C:\\Users\\Lenovo\\Documents\\test\\roelcode\\venv\\Lib\\site-packages\\barcode\\fonts', 'barcode/fonts'),
-            ('C:\\Users\\Lenovo\\Documents\\acontar_soft\\VERSION_03\\CODIGO\\venv\\Lib\\site-packages\\pyzbar', 'pyzbar/')]
+            ('venv/Lib/site-packages/barcode/fonts', 'barcode/fonts'),
+            ('venv/Lib/site-packages/pyzbar', 'pyzbar/'),
+            ]
 
 a = Analysis(
     ['root.py'],
@@ -34,6 +35,7 @@ a = Analysis(
     win_private_assemblies=False,
     cipher=block_cipher,
     noarchive=False,
+    contents_directory='.',
 )
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 

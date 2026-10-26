@@ -1,6 +1,9 @@
 # services/sync_service.py
 from datetime import datetime
-from db.query import sincronizar_inventarios_pendientes
+from services.db_mirror import (
+    reconciliar_tablas_locales_a_servidor,
+    sincronizar_cola_completa,
+)
 from utils.config_helper import get_config, set_config
 
 
@@ -19,37 +22,58 @@ class SyncService:
 
     def process_download_sync(self, data: dict) -> dict:
         """
-        Guarda o actualiza todos los registros recibidos de la API en SQLite 
-        usando INSERT OR REPLACE asegurando correspondencia 1:1 con MySQL.
+        Guarda o actualiza todos los registros recibidos de la API en SQLite
+        usando las tablas nativas del servidor (1:1 con MySQL), preservando
+        las columnas auxiliares locales cuando no vienen en el JSON.
         """
         try:
             cursor = self.db.cursor()
 
             # 1. Locations
             for loc in data.get("locations", []):
+                loc_id = loc.get("id")
+                cod_ubi = loc.get("codigo_ubicacion")
                 cursor.execute("""
                     INSERT OR REPLACE INTO locations (
-                        id, codigo_ubicacion, local, area, oficina, piso, direccion,
-                        codigo_personal, team_id, created_at, updated_at, deleted_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        id, codigo_ubicacion, dep, prov, dist, local, area, oficina,
+                        piso, direccion, codigo_personal, team_id,
+                        created_at, updated_at, deleted_at
+                    ) VALUES (
+                        ?, ?,
+                        COALESCE(?, (SELECT dep FROM locations WHERE id = ? OR CAST(codigo_ubicacion AS TEXT) = CAST(? AS TEXT) LIMIT 1), ''),
+                        COALESCE(?, (SELECT prov FROM locations WHERE id = ? OR CAST(codigo_ubicacion AS TEXT) = CAST(? AS TEXT) LIMIT 1), ''),
+                        COALESCE(?, (SELECT dist FROM locations WHERE id = ? OR CAST(codigo_ubicacion AS TEXT) = CAST(? AS TEXT) LIMIT 1), ''),
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    )
                 """, (
-                    loc.get("id"), loc.get("codigo_ubicacion"), loc.get("local"),
-                    loc.get("area"), loc.get("oficina"), loc.get("piso"),
-                    loc.get("direccion"), loc.get("codigo_personal"),
+                    loc_id, cod_ubi,
+                    loc.get("dep"), loc_id, cod_ubi,
+                    loc.get("prov"), loc_id, cod_ubi,
+                    loc.get("dist"), loc_id, cod_ubi,
+                    loc.get("local"), loc.get("area"), loc.get("oficina"),
+                    loc.get("piso"), loc.get("direccion"), loc.get("codigo_personal"),
                     loc.get("team_id", ""), loc.get("created_at"),
                     loc.get("updated_at"), loc.get("deleted_at")
                 ))
 
             # 2. Personnel
             for per in data.get("personnel", []):
+                cod_per = per.get("codigo_personal")
                 cursor.execute("""
                     INSERT OR REPLACE INTO personnel (
-                        id, codigo_personal, nombres, apellidos, cargo, oficina,
-                        telefono, email, estado, created_at, updated_at, deleted_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        id, codigo_personal, nombres, apellidos, apellido_mat,
+                        cargo, oficina, telefono, email, estado,
+                        created_at, updated_at, deleted_at
+                    ) VALUES (
+                        ?, ?, ?, ?,
+                        COALESCE(?, (SELECT apellido_mat FROM personnel WHERE codigo_personal = ? LIMIT 1), ''),
+                        ?, ?, ?, ?, ?, ?, ?, ?
+                    )
                 """, (
-                    per.get("id"), per.get("codigo_personal"), per.get("nombres"),
-                    per.get("apellidos"), per.get("cargo"), per.get("oficina"),
+                    per.get("id"), cod_per, per.get("nombres"),
+                    per.get("apellidos"),
+                    per.get("apellido_mat"), cod_per,
+                    per.get("cargo"), per.get("oficina"),
                     per.get("telefono"), per.get("email"), per.get("estado", "1"),
                     per.get("created_at"), per.get("updated_at"), per.get("deleted_at")
                 ))
@@ -90,6 +114,7 @@ class SyncService:
 
             # 4. Inventory Records
             for inv in data.get("inventory_records", []):
+                inv_id = inv.get("id")
                 cursor.execute("""
                     INSERT OR REPLACE INTO inventory_records (
                         id, asset_id, codigo_interno, codigo_patrimonial, denominacion,
@@ -99,13 +124,17 @@ class SyncService:
                         dimension, otros, observacion, placa, nro_motor, nro_chasis,
                         matricula, anio, nota, codigo_personal, codigo_ubicacion_inicial,
                         codigo_ubicacion_final, user_id, foto_url, fecha_inventariado,
+                        inventariador_local, equipo_local,
                         inventariado, fecha_servidor, created_at, updated_at, deleted_at
                     ) VALUES (
                         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                        COALESCE((SELECT inventariador_local FROM inventory_records WHERE id = ?), ''),
+                        COALESCE((SELECT equipo_local FROM inventory_records WHERE id = ?), ''),
+                        ?, ?, ?, ?, ?
                     )
                 """, (
-                    inv.get("id"), inv.get("asset_id"), inv.get("codigo_interno"),
+                    inv_id, inv.get("asset_id"), inv.get("codigo_interno"),
                     inv.get("codigo_patrimonial"), inv.get("denominacion"), inv.get("cuenta_contable", ""),
                     inv.get("denominacion_cuenta", ""), inv.get("nro_doc_adq", ""), inv.get("fech_adq"),
                     inv.get("val_adq", 0), inv.get("dep_acumulada", 0), inv.get("valor_neto", 0),
@@ -117,22 +146,34 @@ class SyncService:
                     inv.get("anio", ""), inv.get("nota", ""), inv.get("codigo_personal", ""),
                     inv.get("codigo_ubicacion_inicial", 0), inv.get("codigo_ubicacion_final", 0),
                     inv.get("user_id", 0), inv.get("foto_url", ""), inv.get("fecha_inventariado"),
+                    inv_id, inv_id,
                     inv.get("inventariado", 0), inv.get("fecha_servidor"), inv.get("created_at"),
                     inv.get("updated_at"), inv.get("deleted_at")
                 ))
 
             # 5. Surplus
             for sur in data.get("surplus", []):
+                sur_id = sur.get("id")
                 cursor.execute("""
                     INSERT OR REPLACE INTO surplus (
                         id, codigo_interno, codigo_patrimonial, codigo_ubicacion,
-                        codigo_personal, denominacion, marca, modelo, tipo, color,
+                        codigo_personal, local_override, area_override, oficina_override,
+                        denominacion, marca, modelo, tipo, color,
                         serie, dimension, otros, situacion, estado_conservacion,
                         observacion, created_at, updated_at, deleted_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (
+                        ?, ?, ?, ?, ?,
+                        COALESCE(?, (SELECT local_override FROM surplus WHERE id = ?), ''),
+                        COALESCE(?, (SELECT area_override FROM surplus WHERE id = ?), ''),
+                        COALESCE(?, (SELECT oficina_override FROM surplus WHERE id = ?), ''),
+                        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    )
                 """, (
-                    sur.get("id"), sur.get("codigo_interno", ""), sur.get("codigo_patrimonial", ""),
+                    sur_id, sur.get("codigo_interno", ""), sur.get("codigo_patrimonial", ""),
                     sur.get("codigo_ubicacion", 0), sur.get("codigo_personal", 0),
+                    sur.get("local"), sur_id,
+                    sur.get("area"), sur_id,
+                    sur.get("oficina"), sur_id,
                     sur.get("denominacion"), sur.get("marca", ""), sur.get("modelo", ""),
                     sur.get("tipo", ""), sur.get("color", ""), sur.get("serie", ""),
                     sur.get("dimension", ""), sur.get("otros", ""), sur.get("situacion", ""),
@@ -167,17 +208,27 @@ class SyncService:
 
             # 8. Users (si viene del servidor)
             for usr in data.get("users", []):
+                usr_id = usr.get("id")
+                usr_key = usr.get("usuario") or ""
                 cursor.execute("""
                     INSERT OR REPLACE INTO users (
-                        id, nombres, apellidos, correo, usuario, password_hash,
+                        id, nombres, apellidos, apellido_mat, dni,
+                        correo, usuario, password_hash,
                         rol, estado, created_at, updated_at, token
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (
+                        ?, ?, ?,
+                        COALESCE((SELECT apellido_mat FROM users WHERE id = ? OR usuario = ? LIMIT 1), ''),
+                        COALESCE((SELECT dni FROM users WHERE id = ? OR usuario = ? LIMIT 1), CAST(? AS TEXT)),
+                        ?, ?, ?, ?, ?, ?, ?, ?
+                    )
                 """, (
-                    usr.get("id"),
+                    usr_id,
                     usr.get("nombres") or "",
                     usr.get("apellidos") or "",
+                    usr_id, usr_key,
+                    usr_id, usr_key, usr_id,
                     usr.get("correo"),
-                    usr.get("usuario") or "",
+                    usr_key,
                     usr.get("password_hash") or "",
                     usr.get("rol") or "inventariador",
                     1 if usr.get("estado") is None else usr.get("estado"),
@@ -206,8 +257,11 @@ class SyncService:
             return {"status": "error", "message": f"Error al procesar inserción en SQLite: {str(e)}"}
 
     def execute_initial_sync(self, api_client, limit: int = 20000) -> dict:
-        """Descarga completa de la base de datos inicial y actualización de tablas operativas locales."""
+        """Descarga completa de la base de datos inicial en las tablas del servidor."""
         try:
+            reconciliar_tablas_locales_a_servidor(self.db)
+            sincronizar_cola_completa(api_client, limite=100)
+
             response = api_client.initial_sync(limit=limit)
             data = response.get("data", response)
 
@@ -215,11 +269,8 @@ class SyncService:
             if res_db.get("status") == "error":
                 return res_db
 
-            # Volcado y acoplamiento hacia las tablas locales de interfaz
-            self.populate_bienes_from_server()
-            self.populate_personal_from_server()
-            self.populate_sobrantes_from_server()
-            self.populate_usuarios_from_server()
+            # Sembrar ficha técnica vehicular para activos con placa/motor/chasis
+            self.populate_vehiculos_from_server()
 
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             set_config(self.db, "initial_sync_done", "true")
@@ -242,15 +293,17 @@ class SyncService:
             return {"status": "error", "message": "Se requiere ejecutar Initial Sync primero."}
 
         try:
-            # 1. Primero subimos la cola local para no pisar cambios offline
-            envio = sincronizar_inventarios_pendientes(api_client)
+            reconciliar_tablas_locales_a_servidor(self.db)
+            envio = sincronizar_cola_completa(api_client, limite=100)
             if envio.get("pending", 0):
                 return {
                     "status": "deferred",
-                    "message": "Hay inventarios locales pendientes de sincronización.",
+                    "message": (
+                        f"Hay {envio.get('pending')} cambios locales pendientes de sincronización "
+                        f"({envio.get('pending_inventory', 0)} inventarios, {envio.get('pending_mutations', 0)} ediciones)."
+                    ),
                 }
 
-            # 2. Descargamos novedades del servidor
             response = api_client.sync_changes(last_sync=last_sync, limit=limit)
             payload = response.get("data", {})
             changes = payload.get("changes", {})
@@ -260,11 +313,7 @@ class SyncService:
             if res_db.get("status") == "error":
                 return res_db
 
-            # 3. Refrescamos las tablas locales de trabajo
-            self.populate_bienes_from_server()
-            self.populate_personal_from_server()
-            self.populate_sobrantes_from_server()
-            self.populate_usuarios_from_server()
+            self.populate_vehiculos_from_server()
 
             if server_time:
                 set_config(self.db, "last_sync_timestamp", server_time)
@@ -273,7 +322,10 @@ class SyncService:
 
             return {
                 "status": "success",
-                "message": f"Sincronización de cambios finalizada. {total_novedades} registros actualizados.",
+                "message": (
+                    f"Sincronización finalizada ({envio.get('synced', 0)} subidos, "
+                    f"{total_novedades} descargados)."
+                ),
                 "server_time": server_time
             }
 
@@ -282,153 +334,71 @@ class SyncService:
             return {"status": "error", "message": f"Error en Sync Changes: {str(e)}"}
 
     def populate_bienes_from_server(self):
-        """Puebla la tabla local 'bienes' desde 'inventory_records' aplicando todas las equivalencias."""
-        try:
-            sql = """
-                INSERT OR REPLACE INTO bienes (
-                    CodInt, ActaAnt, Inv, CodPat, DenBien, NroDocAdq, FechAdq,
-                    ValAdq, DepAcum, ValNeto, CtaCont, DenCta, Estado, Marca,
-                    Modelo, Tipo, Color, Serie, Dimension, Placa, NroMotor,
-                    NroChasis, Matricula, AñoFab, Nota, Obs, FechInv, Otros,
-                    Situacion, Inventariador, Equipo
-                )
-                SELECT 
-                    CAST(ir.codigo_interno AS INTEGER),
-                    ir.codigo_ubicacion_inicial,
-                    CASE WHEN COALESCE(ir.inventariado, 0) = 1
-                         THEN ir.codigo_ubicacion_final ELSE '' END,
-                    ir.codigo_patrimonial,
-                    ir.denominacion,
-                    ir.nro_doc_adq,
-                    ir.fech_adq,
-                    ir.val_adq,
-                    ir.dep_acumulada,
-                    ir.valor_neto,
-                    ir.cuenta_contable,
-                    ir.denominacion_cuenta,
-                    COALESCE(ir.estado_conservacion, ir.estado),
-                    ir.marca,
-                    ir.modelo,
-                    ir.tipo,
-                    ir.color,
-                    ir.serie,
-                    ir.dimension,
-                    ir.placa,
-                    ir.nro_motor,
-                    ir.nro_chasis,
-                    ir.matricula,
-                    CAST(ir.anio AS TEXT),
-                    ir.nota,
-                    ir.observacion,
-                    CASE WHEN COALESCE(ir.inventariado, 0) = 1
-                         THEN ir.fecha_inventariado ELSE NULL END,
-                    ir.otros,
-                    ir.situacion,
-                    CASE WHEN COALESCE(ir.inventariado, 0) = 1
-                         THEN CAST(ir.user_id AS TEXT) ELSE NULL END,
-                    COALESCE(loc.team_id, '')
-                FROM inventory_records ir
-                LEFT JOIN locations loc ON CAST(loc.codigo_ubicacion AS TEXT) = CAST(ir.codigo_ubicacion_inicial AS TEXT);
-            """
-            cursor = self.db.cursor()
-            cursor.execute(sql)
-            self.db.commit()
-            print("[OK] Tabla 'bienes' sincronizada correctamente desde 'inventory_records'.")
-        except Exception as e:
-            self.db.rollback()
-            print(f"[ERROR] al volcar inventory_records a bienes: {e}")
+        """
+        En el esquema unificado (Fase 2/3), `bienes` es una VISTA SQL viva sobre
+        `inventory_records`, `locations` y `users`, por lo que siempre está 100%
+        sincronizada en tiempo real sin duplicar filas.
+        """
+        print("[OK] Vista unificada 'bienes' activa sobre 'inventory_records' (sin duplicación).")
 
     def populate_personal_from_server(self):
-        """Puebla la tabla local 'personal' cruzando 'locations' y 'personnel'."""
-        try:
-            sql = """
-                INSERT OR REPLACE INTO personal (
-                    Acta, dep, prov, dist, local, area, oficina,
-                    dni, nombre, apellidoPat, apellidoMat, EquiInv
-                )
-                SELECT 
-                    COALESCE(l.codigo_ubicacion, CAST(l.id AS TEXT)),
-                    NULL,
-                    NULL,
-                    NULL,
-                    l.local,
-                    l.area,
-                    COALESCE(l.oficina, p.oficina),
-                    p.codigo_personal,
-                    p.nombres,
-                    p.apellidos,
-                    '',
-                    p.cargo
-                FROM locations l
-                LEFT JOIN personnel p ON l.codigo_personal = p.codigo_personal;
-            """
-            cursor = self.db.cursor()
-            cursor.execute(sql)
-            self.db.commit()
-            print("[OK] Tabla local 'personal' actualizada correctamente.")
-        except Exception as e:
-            self.db.rollback()
-            print(f"[ERROR] al poblar tabla personal: {e}")
+        """
+        En el esquema unificado (Fase 2/3), `personal` es una VISTA SQL viva sobre
+        `locations` y `personnel`, reflejando los datos en tiempo real.
+        """
+        print("[OK] Vista unificada 'personal' activa sobre 'locations' + 'personnel' (sin duplicación).")
 
     def populate_sobrantes_from_server(self):
-        """Puebla la tabla local 'sobrantes' cruzando 'surplus' con 'locations'."""
-        try:
-            sql = """
-                INSERT OR REPLACE INTO sobrantes (
-                    item, acta, local, area, oficina, den, estado, dim, marca,
-                    modelo, serie, color, obs, tipo, otros, situacion, nota
-                )
-                SELECT 
-                    s.id,
-                    COALESCE(l.codigo_ubicacion, CAST(s.codigo_ubicacion AS TEXT)),
-                    COALESCE(l.local, ''),
-                    COALESCE(l.area, ''),
-                    COALESCE(l.oficina, ''),
-                    s.denominacion,
-                    COALESCE(s.estado_conservacion, ''),
-                    COALESCE(s.dimension, ''),
-                    COALESCE(s.marca, ''),
-                    COALESCE(s.modelo, ''),
-                    COALESCE(s.serie, ''),
-                    COALESCE(s.color, ''),
-                    COALESCE(s.observacion, ''),
-                    COALESCE(s.tipo, ''),
-                    COALESCE(s.otros, ''),
-                    COALESCE(s.situacion, ''),
-                    COALESCE(s.codigo_patrimonial, '')
-                FROM surplus s
-                LEFT JOIN locations l ON CAST(l.codigo_ubicacion AS TEXT) = CAST(s.codigo_ubicacion AS TEXT);
-            """
-            cursor = self.db.cursor()
-            cursor.execute(sql)
-            self.db.commit()
-            print("[OK] Tabla local 'sobrantes' actualizada correctamente.")
-        except Exception as e:
-            self.db.rollback()
-            print(f"[ERROR] al poblar tabla sobrantes: {e}")
+        """
+        En el esquema unificado (Fase 2/3), `sobrantes` es una VISTA SQL viva sobre
+        `surplus` y `locations`, reflejando los datos en tiempo real.
+        """
+        print("[OK] Vista unificada 'sobrantes' activa sobre 'surplus' + 'locations' (sin duplicación).")
 
     def populate_usuarios_from_server(self):
-        """Puebla la tabla local 'usuarios' desde 'users' para permitir el login offline."""
+        """
+        En el esquema unificado (Fase 2/3), `usuarios` es una VISTA SQL viva sobre `users`.
+        """
+        print("[OK] Vista unificada 'usuarios' activa sobre 'users' (sin duplicación).")
+
+    def populate_vehiculos_from_server(self):
+        """
+        Registra automáticamente en la tabla local 'vehiculos' los bienes de 'inventory_records'
+        que tengan datos vehiculares (placa, motor o chasis), sin sobrescribir las inspecciones
+        mecánicas de sistemas ya registradas localmente.
+        """
         try:
             sql = """
-                INSERT OR REPLACE INTO usuarios (
-                    id, usuario, password, Nombres, APat, AMat, dni, equipo
+                INSERT OR IGNORE INTO vehiculos (
+                    CodInt, Entidad, CodPat, DenBien, NroPlaca, Carroceria,
+                    Marca, Modelo, Categoria, NroChasis, NroEjes, NroMotor,
+                    NroSerie, AFab, Color
                 )
-                SELECT 
-                    u.id,
-                    u.usuario,
-                    u.password_hash,
-                    u.nombres,
-                    u.apellidos,
+                SELECT
+                    CAST(ir.codigo_interno AS INTEGER),
+                    COALESCE((SELECT entidad FROM datos LIMIT 1), ''),
+                    ir.codigo_patrimonial,
+                    ir.denominacion,
+                    ir.placa,
+                    ir.tipo,
+                    ir.marca,
+                    ir.modelo,
                     '',
-                    CAST(u.id AS TEXT),
-                    COALESCE(u.rol, '')
-                FROM users u;
+                    ir.nro_chasis,
+                    '',
+                    ir.nro_motor,
+                    ir.serie,
+                    CAST(ir.anio AS TEXT),
+                    ir.color
+                FROM inventory_records ir
+                WHERE COALESCE(TRIM(ir.placa), '') <> ''
+                   OR COALESCE(TRIM(ir.nro_motor), '') <> ''
+                   OR COALESCE(TRIM(ir.nro_chasis), '') <> '';
             """
             cursor = self.db.cursor()
             cursor.execute(sql)
             self.db.commit()
-            print("[OK] Tabla local 'usuarios' actualizada correctamente desde 'users'.")
+            print("[OK] Tabla local 'vehiculos' sincronizada desde 'inventory_records'.")
         except Exception as e:
             self.db.rollback()
-            print(f"[ERROR] al poblar tabla usuarios: {e}")
+            print(f"[ERROR] al poblar tabla vehiculos: {e}")
