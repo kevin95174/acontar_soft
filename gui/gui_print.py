@@ -189,10 +189,12 @@ class Window_print(tk.Toplevel):
 				"Ubicados (Inventariados en esta oficina)",
 				"Faltantes (No inventariados de esta oficina)",
 				"Primera Ubicación (Asignados originalmente)",
-				"Todos (Ubicados + Asignados)"
+				"Todos (Ubicados + Asignados)",
+				"Crear una nueva lista"
 			]
 		)
 		self.cbx_lote_filtro.grid(row=0, column=5, padx=4, pady=4, sticky="ew")
+		self.cbx_lote_filtro.bind("<<ComboboxSelected>>", self._on_estado_filtro_select)
 
 		btnCargar = ttk.Button(frame_filtros, text="🔍 Cargar Bienes", command=self.cargar_bienes_lote)
 		btnCargar.grid(row=0, column=6, columnspan=2, padx=(6, 4), pady=4, sticky="ew")
@@ -468,13 +470,36 @@ class Window_print(tk.Toplevel):
 				return o["acta"]
 		return None
 
+	def _on_estado_filtro_select(self, _event=None):
+		filtro_txt = self.lote_filtro_sel.get()
+		if "nueva lista" in filtro_txt.lower():
+			self.nueva_lista_lote()
+			if hasattr(self, "lbl_prev_info"):
+				self.lbl_prev_info.config(
+					text="✨ Nueva lista vacía creada. Ingrese o escanee códigos en 'Cód. Bien' para agregarlos.",
+					foreground="#2563eb"
+				)
+			if hasattr(self, "etr_lote_add"):
+				self.etr_lote_add.focus_set()
+
 	def cargar_bienes_lote(self):
+		filtro_txt = self.lote_filtro_sel.get()
+		if "nueva lista" in filtro_txt.lower():
+			self.nueva_lista_lote()
+			if hasattr(self, "lbl_prev_info"):
+				self.lbl_prev_info.config(
+					text="✨ Nueva lista vacía creada. Ingrese o escanee códigos en 'Cód. Bien' para agregarlos.",
+					foreground="#2563eb"
+				)
+			if hasattr(self, "etr_lote_add"):
+				self.etr_lote_add.focus_set()
+			return
+
 		acta = self._resolver_acta_actual()
 		if not acta:
 			mb.showerror(title="Atención", message="Ingrese un código de oficina válido o seleccione una oficina de la lista.", parent=self)
 			return
 
-		filtro_txt = self.lote_filtro_sel.get()
 		if "Ubicados" in filtro_txt:
 			filtro = "ubicados"
 		elif "Faltantes" in filtro_txt:
