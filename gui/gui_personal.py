@@ -3,19 +3,23 @@ from tkinter import ttk
 from tkinter import messagebox as mb
 from utils.order_utils import sort_by
 from utils.helpers import resource_path
-from db.query import mostrar_personal, actualizar_personal, registrar_personal, delete_personal
+from db.query import (
+	mostrar_personal,
+	guardar_ubicacion_en_servidor,
+	delete_personal,
+)
 
 class Window_personal(tk.Toplevel):
 	def __init__(self, root=None):
 		super().__init__(root)
 		self.title("Gestión de Personal y Ubicaciones")
-		self.geometry("1180x720")
-		self.minsize(1000, 600)
+		self.geometry("1240x740")
+		self.minsize(1040, 620)
 		self.configure(bg="#f8fafc")
 		self.transient(root)
 
 		self._cargar_icono()
-		self._centrar_ventana(1180, 720)
+		self._centrar_ventana(1240, 740)
 		self._configurar_estilos()
 
 		self.variables()
@@ -73,6 +77,7 @@ class Window_personal(tk.Toplevel):
 		)
 
 	def variables(self):
+		self.loc_id = tk.StringVar()
 		self.nomb = tk.StringVar()
 		self.aPat = tk.StringVar()
 		self.aMat = tk.StringVar()
@@ -85,6 +90,8 @@ class Window_personal(tk.Toplevel):
 		self.local = tk.StringVar()
 		self.area = tk.StringVar()
 		self.oficina = tk.StringVar()
+		self.piso = tk.StringVar()
+		self.direccion = tk.StringVar()
 		self.equipo = tk.StringVar()
 
 	def widgets(self):
@@ -102,47 +109,66 @@ class Window_personal(tk.Toplevel):
 		card_personal = ttk.LabelFrame(f_cards, text=" 👤 Datos del Responsable ", style="Personal.TLabelframe", padding=10)
 		card_personal.pack(side="left", fill="both", expand=True, padx=(0, 8))
 
-		ttk.Label(card_personal, text="Nombres:").grid(column=0, row=0, padx=6, pady=4, sticky="w")
-		ttk.Entry(card_personal, textvariable=self.nomb).grid(column=1, row=0, padx=6, pady=4, sticky="ew")
+		ttk.Label(card_personal, text="Cód. Personal / DNI:").grid(column=0, row=0, padx=6, pady=4, sticky="w")
+		ttk.Entry(card_personal, textvariable=self.dni).grid(column=1, row=0, padx=6, pady=4, sticky="ew")
 
-		ttk.Label(card_personal, text="Ape. Paterno:").grid(column=0, row=1, padx=6, pady=4, sticky="w")
-		ttk.Entry(card_personal, textvariable=self.aPat).grid(column=1, row=1, padx=6, pady=4, sticky="ew")
+		ttk.Label(card_personal, text="Nombres:").grid(column=0, row=1, padx=6, pady=4, sticky="w")
+		ttk.Entry(card_personal, textvariable=self.nomb).grid(column=1, row=1, padx=6, pady=4, sticky="ew")
 
-		ttk.Label(card_personal, text="Ape. Materno:").grid(column=0, row=2, padx=6, pady=4, sticky="w")
-		ttk.Entry(card_personal, textvariable=self.aMat).grid(column=1, row=2, padx=6, pady=4, sticky="ew")
+		ttk.Label(card_personal, text="Ape. Paterno:").grid(column=0, row=2, padx=6, pady=4, sticky="w")
+		ttk.Entry(card_personal, textvariable=self.aPat).grid(column=1, row=2, padx=6, pady=4, sticky="ew")
 
-		ttk.Label(card_personal, text="DNI:").grid(column=0, row=3, padx=6, pady=4, sticky="w")
-		ttk.Entry(card_personal, textvariable=self.dni).grid(column=1, row=3, padx=6, pady=4, sticky="ew")
+		ttk.Label(card_personal, text="Ape. Materno:").grid(column=0, row=3, padx=6, pady=4, sticky="w")
+		ttk.Entry(card_personal, textvariable=self.aMat).grid(column=1, row=3, padx=6, pady=4, sticky="ew")
+
+		ttk.Label(card_personal, text="Equipo Inv.:").grid(column=0, row=4, padx=6, pady=4, sticky="w")
+		ttk.Entry(card_personal, textvariable=self.equipo).grid(column=1, row=4, padx=6, pady=4, sticky="ew")
 
 		card_personal.columnconfigure(1, weight=1)
 
-		# Card 2: Ubicación y Ficha
-		card_ubic = ttk.LabelFrame(f_cards, text=" 📍 Ubicación y Asignación de Ficha ", style="Personal.TLabelframe", padding=10)
+		# Card 2: Ubicación y Ficha (create_or_update_location)
+		card_ubic = ttk.LabelFrame(f_cards, text=" 📍 Ubicación y Asignación de Ficha (create_or_update_location) ", style="Personal.TLabelframe", padding=10)
 		card_ubic.pack(side="left", fill="both", expand=True, padx=4)
 
-		ttk.Label(card_ubic, text="Ficha / Acta:").grid(column=0, row=0, padx=6, pady=4, sticky="w")
-		ttk.Entry(card_ubic, textvariable=self.acta).grid(column=1, row=0, padx=6, pady=4, sticky="ew")
+		ttk.Label(card_ubic, text="Cód. Ubicación (Acta)*:", font=("Segoe UI", 9, "bold")).grid(column=0, row=0, padx=6, pady=4, sticky="w")
+		f_acta_id = tk.Frame(card_ubic, bg="#ffffff")
+		f_acta_id.grid(column=1, row=0, padx=6, pady=4, sticky="ew")
 
-		ttk.Label(card_ubic, text="Departamento:").grid(column=0, row=1, padx=6, pady=4, sticky="w")
-		ttk.Entry(card_ubic, textvariable=self.dep).grid(column=1, row=1, padx=6, pady=4, sticky="ew")
+		ttk.Entry(f_acta_id, textvariable=self.acta, width=12, font=("Segoe UI", 9, "bold")).pack(side="left", fill="x", expand=True)
+		self.lbl_id_badge = tk.Label(
+			f_acta_id,
+			text="ID: Nuevo",
+			bg="#f1f5f9",
+			fg="#475569",
+			font=("Segoe UI", 8, "bold"),
+			padx=6,
+			pady=2
+		)
+		self.lbl_id_badge.pack(side="left", padx=(6, 0))
 
-		ttk.Label(card_ubic, text="Provincia:").grid(column=0, row=2, padx=6, pady=4, sticky="w")
-		ttk.Entry(card_ubic, textvariable=self.prov).grid(column=1, row=2, padx=6, pady=4, sticky="ew")
+		ttk.Label(card_ubic, text="Local / Sede:").grid(column=0, row=1, padx=6, pady=4, sticky="w")
+		ttk.Entry(card_ubic, textvariable=self.local).grid(column=1, row=1, padx=6, pady=4, sticky="ew")
 
-		ttk.Label(card_ubic, text="Distrito:").grid(column=0, row=3, padx=6, pady=4, sticky="w")
-		ttk.Entry(card_ubic, textvariable=self.dist).grid(column=1, row=3, padx=6, pady=4, sticky="ew")
+		ttk.Label(card_ubic, text="Área:").grid(column=0, row=2, padx=6, pady=4, sticky="w")
+		ttk.Entry(card_ubic, textvariable=self.area).grid(column=1, row=2, padx=6, pady=4, sticky="ew")
 
-		ttk.Label(card_ubic, text="Local:").grid(column=2, row=0, padx=(12, 6), pady=4, sticky="w")
-		ttk.Entry(card_ubic, textvariable=self.local).grid(column=3, row=0, padx=6, pady=4, sticky="ew")
+		ttk.Label(card_ubic, text="Oficina:").grid(column=0, row=3, padx=6, pady=4, sticky="w")
+		ttk.Entry(card_ubic, textvariable=self.oficina).grid(column=1, row=3, padx=6, pady=4, sticky="ew")
 
-		ttk.Label(card_ubic, text="Área:").grid(column=2, row=1, padx=(12, 6), pady=4, sticky="w")
-		ttk.Entry(card_ubic, textvariable=self.area).grid(column=3, row=1, padx=6, pady=4, sticky="ew")
+		ttk.Label(card_ubic, text="Piso / Nivel:").grid(column=0, row=4, padx=6, pady=4, sticky="w")
+		ttk.Entry(card_ubic, textvariable=self.piso).grid(column=1, row=4, padx=6, pady=4, sticky="ew")
 
-		ttk.Label(card_ubic, text="Oficina:").grid(column=2, row=2, padx=(12, 6), pady=4, sticky="w")
-		ttk.Entry(card_ubic, textvariable=self.oficina).grid(column=3, row=2, padx=6, pady=4, sticky="ew")
+		ttk.Label(card_ubic, text="Dirección:").grid(column=2, row=0, padx=(12, 6), pady=4, sticky="w")
+		ttk.Entry(card_ubic, textvariable=self.direccion).grid(column=3, row=0, padx=6, pady=4, sticky="ew")
 
-		ttk.Label(card_ubic, text="Equipo Inv.:").grid(column=2, row=3, padx=(12, 6), pady=4, sticky="w")
-		ttk.Entry(card_ubic, textvariable=self.equipo).grid(column=3, row=3, padx=6, pady=4, sticky="ew")
+		ttk.Label(card_ubic, text="Departamento:").grid(column=2, row=1, padx=(12, 6), pady=4, sticky="w")
+		ttk.Entry(card_ubic, textvariable=self.dep).grid(column=3, row=1, padx=6, pady=4, sticky="ew")
+
+		ttk.Label(card_ubic, text="Provincia:").grid(column=2, row=2, padx=(12, 6), pady=4, sticky="w")
+		ttk.Entry(card_ubic, textvariable=self.prov).grid(column=3, row=2, padx=6, pady=4, sticky="ew")
+
+		ttk.Label(card_ubic, text="Distrito:").grid(column=2, row=3, padx=(12, 6), pady=4, sticky="w")
+		ttk.Entry(card_ubic, textvariable=self.dist).grid(column=3, row=3, padx=6, pady=4, sticky="ew")
 
 		card_ubic.columnconfigure(1, weight=1)
 		card_ubic.columnconfigure(3, weight=1)
@@ -151,11 +177,11 @@ class Window_personal(tk.Toplevel):
 		card_acciones = ttk.LabelFrame(f_cards, text=" ⚡ Acciones ", style="Personal.TLabelframe", padding=10)
 		card_acciones.pack(side="left", fill="y", padx=(8, 0))
 
-		btnRegN = ttk.Button(card_acciones, text="➕ Registrar", command=self.registrar_nuevo)
-		btnRegN.pack(fill="x", pady=3)
+		self.btnRegN = ttk.Button(card_acciones, text="➕ Registrar", command=self.registrar_nuevo)
+		self.btnRegN.pack(fill="x", pady=3)
 
-		btnReg = ttk.Button(card_acciones, text="💾 Modificar", command=self.modificar)
-		btnReg.pack(fill="x", pady=3)
+		self.btnReg = ttk.Button(card_acciones, text="💾 Modificar", command=self.modificar)
+		self.btnReg.pack(fill="x", pady=3)
 
 		btnDel = ttk.Button(card_acciones, text="🗑️ Eliminar", command=self.eliminar_personal)
 		btnDel.pack(fill="x", pady=3)
@@ -169,34 +195,40 @@ class Window_personal(tk.Toplevel):
 		frame_tabla = ttk.LabelFrame(contenedor, text=" 📋 Directorio de Personal y Ubicaciones ", style="Personal.TLabelframe", padding=8)
 		frame_tabla.pack(fill="both", expand=True)
 
-		cab = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12)
+		cab = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
 		self.tree = ttk.Treeview(frame_tabla, columns=cab, show="headings", style="Personal.Treeview")     
 
-		self.tree.heading(1,  text="Acta",         command=lambda: sort_by(self.tree, 1,  False))
+		self.tree.heading(1,  text="Acta / Cód.",  command=lambda: sort_by(self.tree, 1,  False))
 		self.tree.heading(2,  text="Departamento", command=lambda: sort_by(self.tree, 2,  False))
 		self.tree.heading(3,  text="Provincia",    command=lambda: sort_by(self.tree, 3,  False))
 		self.tree.heading(4,  text="Distrito",     command=lambda: sort_by(self.tree, 4,  False))
 		self.tree.heading(5,  text="Local",        command=lambda: sort_by(self.tree, 5,  False))
 		self.tree.heading(6,  text="Área",         command=lambda: sort_by(self.tree, 6,  False))
 		self.tree.heading(7,  text="Oficina",      command=lambda: sort_by(self.tree, 7,  False))
-		self.tree.heading(8,  text="DNI",          command=lambda: sort_by(self.tree, 8,  False))
+		self.tree.heading(8,  text="Cód. Personal",command=lambda: sort_by(self.tree, 8,  False))
 		self.tree.heading(9,  text="Nombres",      command=lambda: sort_by(self.tree, 9,  False))
 		self.tree.heading(10, text="Ape. Paterno", command=lambda: sort_by(self.tree, 10, False))
 		self.tree.heading(11, text="Ape. Materno", command=lambda: sort_by(self.tree, 11, False))
 		self.tree.heading(12, text="Equipo Inv.",  command=lambda: sort_by(self.tree, 12, False))
+		self.tree.heading(13, text="ID",           command=lambda: sort_by(self.tree, 13, False))
+		self.tree.heading(14, text="Piso",         command=lambda: sort_by(self.tree, 14, False))
+		self.tree.heading(15, text="Dirección",    command=lambda: sort_by(self.tree, 15, False))
 
-		self.tree.column(1,  width=55,  anchor="center", stretch=False)
-		self.tree.column(2,  width=100, stretch=False)
-		self.tree.column(3,  width=100, stretch=False)
-		self.tree.column(4,  width=100, stretch=False)
-		self.tree.column(5,  width=170, stretch=False)
-		self.tree.column(6,  width=170, stretch=False)
-		self.tree.column(7,  width=180, stretch=False)
-		self.tree.column(8,  width=80,  anchor="center", stretch=False)
-		self.tree.column(9,  width=130, stretch=False)
-		self.tree.column(10, width=120, stretch=False)
-		self.tree.column(11, width=120, stretch=False)
-		self.tree.column(12, width=100, stretch=False)
+		self.tree.column(1,  width=80,  anchor="center", stretch=False)
+		self.tree.column(2,  width=95,  stretch=False)
+		self.tree.column(3,  width=95,  stretch=False)
+		self.tree.column(4,  width=95,  stretch=False)
+		self.tree.column(5,  width=155, stretch=False)
+		self.tree.column(6,  width=155, stretch=False)
+		self.tree.column(7,  width=165, stretch=False)
+		self.tree.column(8,  width=95,  anchor="center", stretch=False)
+		self.tree.column(9,  width=125, stretch=False)
+		self.tree.column(10, width=115, stretch=False)
+		self.tree.column(11, width=115, stretch=False)
+		self.tree.column(12, width=90,  stretch=False)
+		self.tree.column(13, width=50,  anchor="center", stretch=False)
+		self.tree.column(14, width=60,  anchor="center", stretch=False)
+		self.tree.column(15, width=160, stretch=False)
 
 		self.tree.tag_configure("odd",  background="#ffffff")
 		self.tree.tag_configure("even", background="#f8fafc")
@@ -235,14 +267,30 @@ class Window_personal(tk.Toplevel):
 
 		lbl_tip = tk.Label(
 			frame_footer,
-			text="💡 Doble clic en cualquier fila para cargar los datos en el formulario",
+			text="💡 Doble clic en cualquier fila para cargar su ID y datos en el formulario",
 			bg="#f8fafc",
 			fg="#64748b",
 			font=("Segoe UI", 8, "italic")
 		)
 		lbl_tip.pack(side="left", padx=12)
 
+	def _actualizar_badge_id(self):
+		val_id = self.loc_id.get().strip()
+		if val_id:
+			self.lbl_id_badge.config(
+				text=f"ID: #{val_id}",
+				bg="#dbeafe",
+				fg="#1d4ed8"
+			)
+		else:
+			self.lbl_id_badge.config(
+				text="ID: Nuevo",
+				bg="#f1f5f9",
+				fg="#475569"
+			)
+
 	def limpiar_campos(self):
+		self.loc_id.set("")
 		self.nomb.set("")
 		self.aPat.set("")
 		self.aMat.set("")
@@ -254,12 +302,15 @@ class Window_personal(tk.Toplevel):
 		self.local.set("")
 		self.area.set("")
 		self.oficina.set("")
+		self.piso.set("")
+		self.direccion.set("")
 		self.equipo.set("")
+		self._actualizar_badge_id()
 
 	def mostrar(self):
 		for item in self.tree.get_children():
 			self.tree.delete(item)     
-		r = mostrar_personal()
+		r = mostrar_personal() or []
 		for i, b in enumerate(r, 1):
 			tag = "odd" if i % 2 == 1 else "even"
 			self.tree.insert("", tk.END, values=b, tags=(tag,))
@@ -267,29 +318,44 @@ class Window_personal(tk.Toplevel):
 		self.lbl_total.config(text=f"👥  {n} {'registro' if n == 1 else 'registros'}")
 
 	def modificar(self):
-		if not self.acta.get().strip():
-			mb.showwarning(title="Atención", message="Seleccione un registro o ingrese el número de Ficha/Acta.", parent=self)
+		cod_ubicacion = self.acta.get().strip()
+		if not cod_ubicacion:
+			mb.showwarning(title="Atención", message="Seleccione un registro o ingrese el Código de Ubicación (Ficha / Acta).", parent=self)
 			self.focus_set()
 			return
 
-		vnomb = self.nomb.get()
-		vaPat = self.aPat.get()
-		vaMat = self.aMat.get()
-		vndni = self.dni.get()
-
-		departamento = self.dep.get()
-		provincia = self.prov.get()
-		distrito = self.dist.get()
-		vlocal = self.local.get()
-		varea = self.area.get()
-		voficina = self.oficina.get()
-		vequipo = self.equipo.get()
-
-		data = [vnomb, vaPat, vaMat, vndni, departamento, provincia, distrito, vlocal, varea, voficina, vequipo]
 		try:
-			actualizar_personal(self.acta.get(), data)
-			self.mostrar()
-			mb.showinfo(title="Acontar S.A.C.", message="¡Actualizado correctamente!", parent=self)
+			resultado = guardar_ubicacion_en_servidor(
+				codigo_ubicacion=cod_ubicacion,
+				local=self.local.get(),
+				area=self.area.get(),
+				oficina=self.oficina.get(),
+				piso=self.piso.get(),
+				direccion=self.direccion.get(),
+				codigo_personal=self.dni.get(),
+				id_ubicacion=self.loc_id.get().strip() or None,
+				dep=self.dep.get(),
+				prov=self.prov.get(),
+				dist=self.dist.get(),
+				nombre=self.nomb.get(),
+				apellido_pat=self.aPat.get(),
+				apellido_mat=self.aMat.get(),
+				equi_inv=self.equipo.get(),
+				es_nuevo=False,
+			)
+			if resultado.get("success"):
+				self.mostrar()
+				mb.showinfo(
+					title="Acontar S.A.C.",
+					message=resultado.get("message") or "Ubicación actualizada exitosamente",
+					parent=self,
+				)
+			else:
+				mb.showerror(
+					title="Error al actualizar ubicación",
+					message=resultado.get("message") or "No se pudo actualizar la ubicación.",
+					parent=self,
+				)
 			self.focus_set()
 		except Exception as e:
 			print(e)
@@ -297,19 +363,45 @@ class Window_personal(tk.Toplevel):
 			self.focus_set()
 
 	def registrar_nuevo(self):
-		if not self.acta.get().strip():
-			mb.showwarning(title="Atención", message="Ingrese un número de Ficha / Acta para registrar.", parent=self)
+		cod_ubicacion = self.acta.get().strip()
+		if not cod_ubicacion:
+			mb.showwarning(title="Atención", message="Ingrese un Código de Ubicación (Ficha / Acta) para registrar.", parent=self)
 			self.focus_set()
 			return
 
 		try:
-			registrar_personal(
-				self.acta.get(), self.dep.get(), self.prov.get(), self.dist.get(),
-				self.local.get(), self.area.get(), self.oficina.get(), self.dni.get(),
-				self.nomb.get(), self.aPat.get(), self.aMat.get()
+			resultado = guardar_ubicacion_en_servidor(
+				codigo_ubicacion=cod_ubicacion,
+				local=self.local.get(),
+				area=self.area.get(),
+				oficina=self.oficina.get(),
+				piso=self.piso.get(),
+				direccion=self.direccion.get(),
+				codigo_personal=self.dni.get(),
+				id_ubicacion=None,
+				dep=self.dep.get(),
+				prov=self.prov.get(),
+				dist=self.dist.get(),
+				nombre=self.nomb.get(),
+				apellido_pat=self.aPat.get(),
+				apellido_mat=self.aMat.get(),
+				equi_inv=self.equipo.get(),
+				es_nuevo=True,
 			)
-			self.mostrar()
-			mb.showinfo(title="Acontar S.A.C.", message="¡Registrado correctamente!", parent=self)
+			if resultado.get("success"):
+				self.mostrar()
+				self.limpiar_campos()
+				mb.showinfo(
+					title="Acontar S.A.C.",
+					message=resultado.get("message") or "Ubicación registrada exitosamente",
+					parent=self,
+				)
+			else:
+				mb.showerror(
+					title="Error al registrar ubicación",
+					message=resultado.get("message") or "No se pudo registrar la ubicación.",
+					parent=self,
+				)
 			self.focus_set()
 		except Exception as e:
 			print(e)
@@ -370,3 +462,7 @@ class Window_personal(tk.Toplevel):
 		self.aPat.set(vals[9] if vals[9] is not None else "")
 		self.aMat.set(vals[10] if vals[10] is not None else "")
 		self.equipo.set(vals[11] if vals[11] is not None else "")
+		self.loc_id.set(str(vals[12]) if len(vals) > 12 and vals[12] is not None else "")
+		self.piso.set(str(vals[13]) if len(vals) > 13 and vals[13] is not None else "")
+		self.direccion.set(str(vals[14]) if len(vals) > 14 and vals[14] is not None else "")
+		self._actualizar_badge_id()

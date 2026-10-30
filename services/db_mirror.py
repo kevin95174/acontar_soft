@@ -416,7 +416,8 @@ def mirror_delete_sobrante(cur, item_id):
 
 def mirror_personal(
     cur, acta, dep, prov, dist, local, area, oficina,
-    dni, nombre, apellido_pat, apellido_mat, equi_inv=""
+    dni, nombre, apellido_pat, apellido_mat, equi_inv="",
+    piso="", direccion="", location_id=None, es_nuevo=False, encolar_ubicacion=True
 ):
     """
     Inserta o actualiza directamente en `locations` y `personnel`,
@@ -437,42 +438,69 @@ def mirror_personal(
     area_str = str(area or "").strip()
     oficina_str = str(oficina or "").strip()
     equi_str = str(equi_inv or "").strip()
-    direccion_str = " - ".join(p for p in [dep_str, prov_str, dist_str] if p)
+    piso_str = str(piso or "").strip()
+    dir_explicit = str(direccion or "").strip()
+    direccion_str = dir_explicit if dir_explicit else " - ".join(p for p in [dep_str, prov_str, dist_str] if p)
+
+    loc_id_servidor = None
+    if location_id is not None and str(location_id).strip() != "":
+        try:
+            loc_id_servidor = int(location_id)
+        except (ValueError, TypeError):
+            loc_id_servidor = None
 
     if acta_str:
-        cur.execute("""
-            SELECT id FROM locations WHERE CAST(codigo_ubicacion AS TEXT) = ? LIMIT 1
-        """, (acta_str,))
-        loc_row = cur.fetchone()
+        if loc_id_servidor is not None:
+            cur.execute("SELECT id FROM locations WHERE id = ? LIMIT 1", (loc_id_servidor,))
+            loc_row = cur.fetchone()
+        else:
+            cur.execute("""
+                SELECT id FROM locations WHERE CAST(codigo_ubicacion AS TEXT) = ? LIMIT 1
+            """, (acta_str,))
+            loc_row = cur.fetchone()
+
         if loc_row:
+            db_id = loc_row[0]
+            if not es_nuevo and loc_id_servidor is None:
+                loc_id_servidor = int(db_id)
             cur.execute("""
                 UPDATE locations
-                SET dep = ?, prov = ?, dist = ?, local = ?, area = ?, oficina = ?,
+                SET codigo_ubicacion = ?, dep = ?, prov = ?, dist = ?, local = ?, area = ?, oficina = ?,
+                    piso = COALESCE(NULLIF(?, ''), piso),
                     direccion = COALESCE(NULLIF(?, ''), direccion),
                     codigo_personal = ?, team_id = COALESCE(NULLIF(?, ''), team_id), updated_at = ?
                 WHERE id = ?
-            """, (dep_str, prov_str, dist_str, local_str, area_str, oficina_str, direccion_str, dni_str, equi_str, now_iso, loc_row[0]))
-            loc_id = loc_row[0]
+            """, (acta_str, dep_str, prov_str, dist_str, local_str, area_str, oficina_str, piso_str, direccion_str, dni_str, equi_str, now_iso, db_id))
         else:
-            cur.execute("""
-                INSERT INTO locations (
-                    codigo_ubicacion, dep, prov, dist, local, area, oficina, direccion,
-                    codigo_personal, team_id, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (acta_str, dep_str, prov_str, dist_str, local_str, area_str, oficina_str, direccion_str, dni_str, equi_str, now_iso, now_iso))
-            loc_id = cur.lastrowid
+            if loc_id_servidor is not None:
+                cur.execute("""
+                    INSERT OR REPLACE INTO locations (
+                        id, codigo_ubicacion, dep, prov, dist, local, area, oficina, piso, direccion,
+                        codigo_personal, team_id, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (loc_id_servidor, acta_str, dep_str, prov_str, dist_str, local_str, area_str, oficina_str, piso_str, direccion_str, dni_str, equi_str, now_iso, now_iso))
+            else:
+                cur.execute("""
+                    INSERT INTO locations (
+                        codigo_ubicacion, dep, prov, dist, local, area, oficina, piso, direccion,
+                        codigo_personal, team_id, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (acta_str, dep_str, prov_str, dist_str, local_str, area_str, oficina_str, piso_str, direccion_str, dni_str, equi_str, now_iso, now_iso))
 
-        loc_payload = {
-            "id": loc_id,
-            "codigo_ubicacion": acta_str,
-            "local": local_str,
-            "area": area_str,
-            "oficina": oficina_str,
-            "direccion": direccion_str,
-            "codigo_personal": dni_str,
-            "team_id": equi_str,
-        }
-        enqueue_mutation(cur, "location", acta_str, loc_payload)
+        if encolar_ubicacion:
+            loc_payload = {
+                "id": None if es_nuevo else loc_id_servidor,
+                "codigo_ubicacion": acta_str,
+                "local": local_str or None,
+                "area": area_str or None,
+                "oficina": oficina_str or None,
+                "piso": piso_str or None,
+                "direccion": direccion_str or None,
+                "codigo_personal": dni_str or None,
+            }
+            enqueue_mutation(cur, "location", acta_str, loc_payload)
+        else:
+            remove_mutation(cur, "location", acta_str)
 
     if dni_str:
         cur.execute("""
@@ -645,14 +673,16 @@ def sincronizar_cola_completa(api_client, limite: int = 50) -> dict:
                     respuesta = {"status_code": 200, "data": {}}
 
                 status = respuesta.get("status_code")
-                detalle = respuesta.get("data", {}).get("message", "Error de sincronización")
+                resp_data = respuesta.get("data") if isinstance(respuesta.get("data"), dict) else {}
+                detalle = resp_data.get("message", "Error de sincronización")
+                api_ok = (status in (200, 201)) and (resp_data.get("success", True) is not False) and (resp_data.get("status") != "error")
             except Exception as error:
-                status, detalle = None, str(error)
+                status, detalle, api_ok = None, str(error), False
 
-            if status in (200, 201):
+            if api_ok:
                 cur.execute("DELETE FROM sync_mutations_outbox WHERE id = ?", (mut_id,))
                 synced += 1
-            elif status == 409:
+            elif status in (400, 409, 422) or (status in (200, 201) and not api_ok):
                 cur.execute("""
                     UPDATE sync_mutations_outbox
                     SET status = 'conflict', attempts = attempts + 1, last_error = ?

@@ -127,10 +127,8 @@ def build_label_sobrante(valor, local, area, oficina, deno):
         try:
                 c.save()
                 if valor == 1:
-                        try:
-                                win32api.ShellExecute (0, "print", pdf_name, None, "labels/sobrantes/", 0)
-                        except:
-                                win32api.ShellExecute (0, "print", pdf_name, None, "labels/sobrantes", 0)
+                        from label.label_gen import _enviar_pdf_a_impresora
+                        _enviar_pdf_a_impresora(pathpdf)
         except:
                 mb.showerror(message="""Ha ocurrido un error, revise si el PDF este abierto o que la impresora este bien configurada""", title="Error")
         

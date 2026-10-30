@@ -150,31 +150,46 @@ def mostrar_datos_bienes():
 
 def mostrar_datos_print(codigo):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f"""SELECT
-                        bienes.DenBien,
-                        bienes.CodInt,
-                        bienes.CodPat,
-                        COALESCE(bienes.Inv || ' - ' || pu.local || ' - ' || pu.area || ' - ' || pu.oficina, 'No Inventariado') AS ubicacionActual,
-                        COALESCE(bienes.ActaAnt || ' - ' || pa.local || ' - ' || pa.area || ' - ' || pa.oficina, '---') AS ubicacionAnterior
-                    FROM 
-                        bienes
-                    INNER JOIN 
-                        personal pa ON bienes.ActaAnt = pa.Acta
-                    LEFT JOIN 
-                        personal pu ON bienes.Inv = pu.Acta
-                    WHERE 
-                        bienes.CodInt = {codigo} OR bienes.CodPat = {codigo}
-                    """
+    cod_str = str(codigo or "").strip()
+    sql_sqlite = """
+        SELECT
+            bienes.DenBien,
+            bienes.CodInt,
+            bienes.CodPat,
+            CASE
+                WHEN bienes.Inv IS NOT NULL AND TRIM(CAST(bienes.Inv AS TEXT)) != ''
+                THEN COALESCE(
+                    bienes.Inv || ' - ' || COALESCE(pu.local, '') || ' - ' || COALESCE(pu.area, '') || ' - ' || COALESCE(pu.oficina, ''),
+                    CAST(bienes.Inv AS TEXT)
+                )
+                ELSE 'No Inventariado'
+            END AS ubicacionActual,
+            COALESCE(
+                bienes.ActaAnt || ' - ' || COALESCE(pa.local, '') || ' - ' || COALESCE(pa.area, '') || ' - ' || COALESCE(pa.oficina, ''),
+                CAST(bienes.ActaAnt AS TEXT),
+                '---'
+            ) AS ubicacionAnterior
+        FROM bienes
+        LEFT JOIN personal pa ON TRIM(CAST(bienes.ActaAnt AS TEXT)) = TRIM(CAST(pa.Acta AS TEXT))
+        LEFT JOIN personal pu ON TRIM(CAST(bienes.Inv AS TEXT)) = TRIM(CAST(pu.Acta AS TEXT))
+        WHERE TRIM(CAST(bienes.CodInt AS TEXT)) = ? OR TRIM(CAST(bienes.CodPat AS TEXT)) = ?
+        LIMIT 1
+    """
+    cur = None
     try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite)
+        cur.execute(sql_sqlite, (cod_str, cod_str))
         books = cur.fetchone()
+        if not books:
+            print(f"[DB][mostrar_datos_print] No se encontró ningún registro para el código: '{cod_str}'")
         return books
     except Error as e:
-        print("Error selecting: " + str(e))
+        print(f"[DB][ERROR en mostrar_datos_print] Código='{cod_str}': {e}")
+        return None
     finally:
-        if conn_sqlite:
+        if cur:
             cur.close()
+        if conn_sqlite:
             conn_sqlite.close()
 
 def mostrar_datos_test(Acta):
@@ -207,32 +222,42 @@ def mostrar_datos_test(Acta):
 
 def mostrar_datos_sobrante(item):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f""" SELECT local, area, oficina, den FROM sobrantes WHERE item = {item}"""
+    item_str = str(item or "").strip()
+    sql_sqlite = """SELECT local, area, oficina, den FROM sobrantes WHERE TRIM(CAST(item AS TEXT)) = ?"""
+    cur = None
     try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite)
+        cur.execute(sql_sqlite, (item_str,))
         books = cur.fetchone()
+        if not books:
+            print(f"[DB][mostrar_datos_sobrante] No se encontró sobrante para item: '{item_str}'")
         return books
     except Error as e:
-        print("Error selecting: " + str(e))
+        print(f"[DB][ERROR en mostrar_datos_sobrante] item='{item_str}': {e}")
+        return None
     finally:
-        if conn_sqlite:
+        if cur:
             cur.close()
+        if conn_sqlite:
             conn_sqlite.close()
 
 def val_acta_ant(Acta):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f"""SELECT CodPat, CodInt, DenBien, ActaAnt FROM bienes WHERE CodPat = {Acta} OR CodInt = {Acta}"""
+    cod_str = str(Acta or "").strip()
+    sql_sqlite = """SELECT CodPat, CodInt, DenBien, ActaAnt FROM bienes WHERE TRIM(CAST(CodPat AS TEXT)) = ? OR TRIM(CAST(CodInt AS TEXT)) = ?"""
+    cur = None
     try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite)
+        cur.execute(sql_sqlite, (cod_str, cod_str))
         books = cur.fetchall()
         return books
     except Error as e:
-        print("Error selecting: " + str(e))
+        print(f"[DB][ERROR en val_acta_ant] Código='{cod_str}': {e}")
+        return []
     finally:
-        if conn_sqlite:
+        if cur:
             cur.close()
+        if conn_sqlite:
             conn_sqlite.close()
 
 def buscar_bien(codigo, valor):
@@ -942,7 +967,27 @@ def delete_sobrante(id):
 
 def mostrar_personal():
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f"SELECT * FROM personal"
+    sql_sqlite = """
+        SELECT
+            COALESCE(NULLIF(CAST(l.codigo_ubicacion AS TEXT), ''), CAST(l.id AS TEXT)) AS Acta,
+            COALESCE(l.dep, '') AS dep,
+            COALESCE(l.prov, '') AS prov,
+            COALESCE(l.dist, '') AS dist,
+            COALESCE(l.local, '') AS local,
+            COALESCE(l.area, '') AS area,
+            COALESCE(l.oficina, p.oficina, '') AS oficina,
+            COALESCE(p.codigo_personal, l.codigo_personal, '') AS dni,
+            COALESCE(p.nombres, '') AS nombre,
+            COALESCE(p.apellidos, '') AS apellidoPat,
+            COALESCE(p.apellido_mat, '') AS apellidoMat,
+            COALESCE(NULLIF(l.team_id, ''), p.cargo, '') AS EquiInv,
+            l.id AS loc_id,
+            COALESCE(l.piso, '') AS piso,
+            COALESCE(l.direccion, '') AS direccion
+        FROM locations l
+        LEFT JOIN personnel p ON l.codigo_personal = p.codigo_personal
+        ORDER BY CAST(COALESCE(NULLIF(l.codigo_ubicacion, ''), l.id) AS INTEGER) ASC, l.id ASC
+    """
     try:
         cur = conn_sqlite.cursor()
         cur.execute(sql_sqlite)
@@ -950,54 +995,228 @@ def mostrar_personal():
         return data
     except Error as e:
         print("Error showing personal: "+ str(e))
+        return []
     finally:
         if conn_sqlite:
             cur.close()
             conn_sqlite.close()
 
-def actualizar_personal(id, data):
+def guardar_ubicacion_en_servidor(
+    codigo_ubicacion,
+    local="",
+    area="",
+    oficina="",
+    piso="",
+    direccion="",
+    codigo_personal="",
+    id_ubicacion=None,
+    dep="",
+    prov="",
+    dist="",
+    nombre="",
+    apellido_pat="",
+    apellido_mat="",
+    equi_inv="",
+    es_nuevo=True,
+    api_client=None,
+) -> dict:
+    """
+    Invoca el endpoint POST `create_or_update_location` en el servidor y sincroniza
+    el registro localmente en `locations` y `personnel`.
+    - Si `es_nuevo=True` (o `id_ubicacion` es None/vacío), envía `"id": null` para crear.
+    - Si `es_nuevo=False`, envía `"id": <id>` para actualizar el registro existente.
+    """
+    from utils.api_client import ApiManagerAcontarSacClient
+
+    cod_ubi_str = str(codigo_ubicacion or "").strip()
+    if not cod_ubi_str:
+        return {
+            "success": False,
+            "status": "error",
+            "message": "El campo código de ubicación (Ficha / Acta) es obligatorio.",
+            "data": None,
+        }
+
+    clean_id = None
+    if not es_nuevo:
+        if id_ubicacion is not None and str(id_ubicacion).strip() != "":
+            try:
+                clean_id = int(id_ubicacion)
+            except (ValueError, TypeError):
+                clean_id = None
+
+        if clean_id is None:
+            conn_lookup = iniciar_conexion_sqlite()
+            if conn_lookup:
+                try:
+                    cur_l = conn_lookup.cursor()
+                    cur_l.execute(
+                        "SELECT id FROM locations WHERE CAST(codigo_ubicacion AS TEXT) = ? LIMIT 1",
+                        (cod_ubi_str,),
+                    )
+                    row_l = cur_l.fetchone()
+                    if row_l and row_l[0] is not None:
+                        clean_id = int(row_l[0])
+                except Exception:
+                    pass
+                finally:
+                    conn_lookup.close()
+
+    dep_str = str(dep or "").strip()
+    prov_str = str(prov or "").strip()
+    dist_str = str(dist or "").strip()
+    dir_explicit = str(direccion or "").strip()
+    direccion_final = dir_explicit if dir_explicit else " - ".join(p for p in [dep_str, prov_str, dist_str] if p)
+
+    local_str = str(local or "").strip()
+    area_str = str(area or "").strip()
+    oficina_str = str(oficina or "").strip()
+    piso_str = str(piso or "").strip()
+    dni_str = str(codigo_personal or "").strip()
+
+    payload = {
+        "id": None if es_nuevo else clean_id,
+        "codigo_ubicacion": cod_ubi_str,
+        "local": local_str or None,
+        "area": area_str or None,
+        "oficina": oficina_str or None,
+        "piso": piso_str or None,
+        "direccion": direccion_final or None,
+        "codigo_personal": dni_str or None,
+    }
+
+    client = api_client or ApiManagerAcontarSacClient(timeout=15)
+    respuesta = client.create_or_update_location(payload)
+    status_code = respuesta.get("status_code")
+    resp_body = respuesta.get("data") if isinstance(respuesta.get("data"), dict) else {}
+
+    msg_servidor = resp_body.get("message")
+    api_success = (
+        status_code in (200, 201)
+        and resp_body.get("success", True) is not False
+        and resp_body.get("status") != "error"
+    )
+    es_error_red = (
+        status_code == 500
+        and "Error de conexión HTTP" in str(msg_servidor or "")
+    )
+
+    if not api_success and not es_error_red:
+        return {
+            "success": False,
+            "status": resp_body.get("status", "error"),
+            "message": msg_servidor or f"El servidor rechazó la solicitud (HTTP {status_code}).",
+            "data": resp_body.get("data"),
+            "offline": False,
+        }
+
+    # Determinar si el servidor devolvió el ID creado/actualizado en data
+    server_loc_id = clean_id
+    data_obj = resp_body.get("data")
+    if isinstance(data_obj, dict) and data_obj.get("id") is not None:
+        try:
+            server_loc_id = int(data_obj.get("id"))
+        except (ValueError, TypeError):
+            pass
+
     conn_sqlite = iniciar_conexion_sqlite()
-    id_str = str(id).strip()
     try:
         cur = conn_sqlite.cursor()
-        # data: [nombre, apellidoPat, apellidoMat, dni, dep, prov, dist, local, area, oficina, EquiInv]
         mirror_personal(
             cur,
-            acta=id_str,
-            dep=data[4] if len(data) > 4 else "",
-            prov=data[5] if len(data) > 5 else "",
-            dist=data[6] if len(data) > 6 else "",
-            local=data[7] if len(data) > 7 else "",
-            area=data[8] if len(data) > 8 else "",
-            oficina=data[9] if len(data) > 9 else "",
-            dni=data[3] if len(data) > 3 else "",
-            nombre=data[0] if len(data) > 0 else "",
-            apellido_pat=data[1] if len(data) > 1 else "",
-            apellido_mat=data[2] if len(data) > 2 else "",
-            equi_inv=data[10] if len(data) > 10 else "",
+            acta=cod_ubi_str,
+            dep=dep_str,
+            prov=prov_str,
+            dist=dist_str,
+            local=local_str,
+            area=area_str,
+            oficina=oficina_str,
+            dni=dni_str,
+            nombre=nombre,
+            apellido_pat=apellido_pat,
+            apellido_mat=apellido_mat,
+            equi_inv=equi_inv,
+            piso=piso_str,
+            direccion=direccion_final,
+            location_id=server_loc_id,
+            es_nuevo=es_nuevo,
+            encolar_ubicacion=es_error_red,
         )
         conn_sqlite.commit()
-        disparar_sincronizacion_background()
+        if dni_str or es_error_red:
+            disparar_sincronizacion_background(client)
     except Error as e:
-        print("Error updating data: " + str(e))
+        conn_sqlite.rollback()
+        return {
+            "success": False,
+            "status": "error",
+            "message": f"Error al guardar en base de datos local: {e}",
+            "data": None,
+            "offline": es_error_red,
+        }
     finally:
         if conn_sqlite:
-            cur.close()
             conn_sqlite.close()
 
-def registrar_personal(a, b, c, d, e, f, g, h, i, j, k, l=""):
-    conn_sqlite = iniciar_conexion_sqlite()
-    try:
-        cur = conn_sqlite.cursor()
-        mirror_personal(cur, a, b, c, d, e, f, g, h, i, j, k, l)
-        conn_sqlite.commit()
-        disparar_sincronizacion_background()
-    except Error as e:
-        print("Error updating data: " + str(e))
-    finally:
-        if conn_sqlite:
-            cur.close()
-            conn_sqlite.close()
+    if es_error_red:
+        return {
+            "success": True,
+            "status": "offline",
+            "message": "Sin conexión al servidor. Ubicación guardada localmente y encolada para sincronización.",
+            "data": None,
+            "offline": True,
+        }
+
+    return {
+        "success": True,
+        "status": resp_body.get("status", "success"),
+        "message": msg_servidor or (
+            "Ubicación registrada exitosamente" if es_nuevo else "Ubicación actualizada exitosamente"
+        ),
+        "data": data_obj,
+        "offline": False,
+    }
+
+def actualizar_personal(id, data, piso="", direccion="", location_id=None):
+    # data: [nombre, apellidoPat, apellidoMat, dni, dep, prov, dist, local, area, oficina, EquiInv]
+    return guardar_ubicacion_en_servidor(
+        codigo_ubicacion=id,
+        local=data[7] if len(data) > 7 else "",
+        area=data[8] if len(data) > 8 else "",
+        oficina=data[9] if len(data) > 9 else "",
+        piso=piso,
+        direccion=direccion,
+        codigo_personal=data[3] if len(data) > 3 else "",
+        id_ubicacion=location_id,
+        dep=data[4] if len(data) > 4 else "",
+        prov=data[5] if len(data) > 5 else "",
+        dist=data[6] if len(data) > 6 else "",
+        nombre=data[0] if len(data) > 0 else "",
+        apellido_pat=data[1] if len(data) > 1 else "",
+        apellido_mat=data[2] if len(data) > 2 else "",
+        equi_inv=data[10] if len(data) > 10 else "",
+        es_nuevo=False,
+    )
+
+def registrar_personal(a, b, c, d, e, f, g, h, i, j, k, l="", piso="", direccion=""):
+    return guardar_ubicacion_en_servidor(
+        codigo_ubicacion=a,
+        dep=b,
+        prov=c,
+        dist=d,
+        local=e,
+        area=f,
+        oficina=g,
+        codigo_personal=h,
+        nombre=i,
+        apellido_pat=j,
+        apellido_mat=k,
+        equi_inv=l,
+        piso=piso,
+        direccion=direccion,
+        id_ubicacion=None,
+        es_nuevo=True,
+    )
 
 def delete_personal(id):
     conn_sqlite = iniciar_conexion_sqlite()
@@ -1030,80 +1249,199 @@ def mostrar_d_personal(id):
             cur.close()
             conn_sqlite.close()
 
-def data_label(Acta):
+def buscar_oficinas_predictivo(termino="", limite=40):
+    """
+    Busca fichas/ubicaciones por nombre de oficina (o área, local, responsable, N° de ficha)
+    con coincidencia insensible a mayúsculas y tildes, ordenando primero las coincidencias
+    más relevantes en el nombre de la oficina.
+    Devuelve una lista de tuplas: (Acta, local, area, oficina, dni, fullName)
+    """
+    import unicodedata
+
+    def _norm(texto):
+        if not texto:
+            return ""
+        s = str(texto).strip().lower()
+        return "".join(
+            c for c in unicodedata.normalize("NFD", s)
+            if unicodedata.category(c) != "Mn"
+        )
+
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f"""SELECT CodInt, CodPat, DenBien, Inv FROM bienes Where CodPat = {Acta} OR CodInt = {Acta}"""
+    sql_sqlite = """
+        SELECT
+            TRIM(CAST(Acta AS TEXT)) AS Acta,
+            TRIM(COALESCE(local, '')) AS local,
+            TRIM(COALESCE(area, '')) AS area,
+            TRIM(COALESCE(oficina, '')) AS oficina,
+            TRIM(COALESCE(dni, '')) AS dni,
+            TRIM(COALESCE(nombre, '') || ' ' || COALESCE(apellidoPat, '') || ' ' || COALESCE(apellidoMat, '')) AS fullName
+        FROM personal
+        WHERE TRIM(COALESCE(Acta, '')) <> ''
+    """
     try:
         cur = conn_sqlite.cursor()
         cur.execute(sql_sqlite)
-        books = cur.fetchall()
-        return books
+        filas = cur.fetchall() or []
     except Error as e:
-        print("Error selecting: " + str(e))
+        print("Error searching oficinas predictivo: " + str(e))
+        return []
     finally:
         if conn_sqlite:
             cur.close()
+            conn_sqlite.close()
+
+    q = _norm(termino)
+    tokens = [t for t in q.split() if t]
+
+    resultados = []
+    for fila in filas:
+        acta, local, area, oficina, dni, full_name = fila
+        ofi_norm = _norm(oficina)
+        area_norm = _norm(area)
+        local_norm = _norm(local)
+        resp_norm = _norm(full_name)
+        acta_norm = _norm(acta)
+
+        if not tokens:
+            # Sin término: priorizar las que tienen nombre de oficina y ordenar alfabéticamente
+            prioridad = (0 if ofi_norm else 1, ofi_norm or area_norm, acta_norm)
+            resultados.append((prioridad, fila))
+            continue
+
+        # Verificar coincidencia en oficina o en combinación (oficina + área + local + responsable + acta)
+        en_oficina = all(t in ofi_norm for t in tokens)
+        texto_completo = f"{ofi_norm} {area_norm} {local_norm} {resp_norm} {acta_norm}"
+        en_completo = all(t in texto_completo for t in tokens)
+
+        if not en_oficina and not en_completo:
+            continue
+
+        palabras_ofi = ofi_norm.split()
+        if ofi_norm == q:
+            rango = 0
+        elif ofi_norm.startswith(q):
+            rango = 1
+        elif any(p.startswith(tokens[0]) for p in palabras_ofi) and en_oficina:
+            rango = 2
+        elif en_oficina:
+            rango = 3
+        else:
+            rango = 4
+
+        prioridad = (rango, ofi_norm, area_norm, acta_norm)
+        resultados.append((prioridad, fila))
+
+    resultados.sort(key=lambda item: item[0])
+    if limite and limite > 0:
+        resultados = resultados[:limite]
+    return [item[1] for item in resultados]
+
+def data_label(Acta):
+    conn_sqlite = iniciar_conexion_sqlite()
+    cod_str = str(Acta or "").strip()
+    sql_sqlite = """
+        SELECT CodInt, CodPat, DenBien, Inv
+        FROM bienes
+        WHERE TRIM(CAST(CodPat AS TEXT)) = ? OR TRIM(CAST(CodInt AS TEXT)) = ?
+        ORDER BY CASE WHEN TRIM(CAST(CodInt AS TEXT)) = ? THEN 0 ELSE 1 END
+        LIMIT 1
+    """
+    cur = None
+    try:
+        cur = conn_sqlite.cursor()
+        cur.execute(sql_sqlite, (cod_str, cod_str, cod_str))
+        books = cur.fetchall()
+        if not books:
+            print(f"[DB][data_label] No se encontraron datos en vista 'bienes' para código='{cod_str}'")
+        return books
+    except Error as e:
+        print(f"[DB][ERROR en data_label] Código='{cod_str}': {e}")
+        return []
+    finally:
+        if cur:
+            cur.close()
+        if conn_sqlite:
             conn_sqlite.close()
 
 def data_label_nc(Acta):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f"""SELECT CodInt, CodPat, DenBien FROM bienes Where CodInt = "{Acta}" """
+    cod_str = str(Acta or "").strip()
+    sql_sqlite = """SELECT CodInt, CodPat, DenBien FROM bienes WHERE TRIM(CAST(CodInt AS TEXT)) = ?"""
+    cur = None
     try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite)
+        cur.execute(sql_sqlite, (cod_str,))
         books = cur.fetchall()
+        if not books:
+            print(f"[DB][data_label_nc] No se encontraron datos para CodInt='{cod_str}'")
         return books
     except Error as e:
-        print("Error selecting: " + str(e))
+        print(f"[DB][ERROR en data_label_nc] CodInt='{cod_str}': {e}")
+        return []
     finally:
-        if conn_sqlite:
+        if cur:
             cur.close()
+        if conn_sqlite:
             conn_sqlite.close()
 
 def data_label_ubi(Acta):
     conn_sqlite = iniciar_conexion_sqlite()
-    # sql_sqlite = f"""SELECT local||' '|| area||' '|| oficina as ubicacion FROM personal Where Acta = "{Acta}" """
-    sql_sqlite = f"""SELECT oficina as ubicacion FROM personal Where Acta = "{Acta}" """
+    acta_str = str(Acta or "").strip()
+    sql_sqlite = """SELECT oficina AS ubicacion FROM personal WHERE TRIM(CAST(Acta AS TEXT)) = ?"""
+    cur = None
     try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite)
+        cur.execute(sql_sqlite, (acta_str,))
         books = cur.fetchall()
+        if not books:
+            print(f"[DB][data_label_ubi] No se encontró oficina en 'personal' para Acta='{acta_str}'")
         return books
     except Error as e:
-        print("Error selecting: " + str(e))
+        print(f"[DB][ERROR en data_label_ubi] Acta='{acta_str}': {e}")
+        return []
     finally:
-        if conn_sqlite:
+        if cur:
             cur.close()
+        if conn_sqlite:
             conn_sqlite.close()
 
 def query_codpat(Acta):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f"""SELECT CodPat FROM bienes Where CodInt = {Acta}"""
+    cod_str = str(Acta or "").strip()
+    sql_sqlite = """SELECT CodPat FROM bienes WHERE TRIM(CAST(CodInt AS TEXT)) = ?"""
+    cur = None
     try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite)
+        cur.execute(sql_sqlite, (cod_str,))
         books = cur.fetchall()
         return books
     except Error as e:
-        print("Error selecting: " + str(e))
+        print(f"[DB][ERROR en query_codpat] CodInt='{cod_str}': {e}")
+        return []
     finally:
-        if conn_sqlite:
+        if cur:
             cur.close()
+        if conn_sqlite:
             conn_sqlite.close()
 
 def query_codint(Acta):
     conn_sqlite = iniciar_conexion_sqlite()
-    sql_sqlite = f"""SELECT CodInt FROM bienes Where CodInt = {Acta} OR CodPat = {Acta}"""
+    cod_str = str(Acta or "").strip()
+    sql_sqlite = """SELECT CodInt FROM bienes WHERE TRIM(CAST(CodInt AS TEXT)) = ? OR TRIM(CAST(CodPat AS TEXT)) = ?"""
+    cur = None
     try:
         cur = conn_sqlite.cursor()
-        cur.execute(sql_sqlite)
+        cur.execute(sql_sqlite, (cod_str, cod_str))
         books = cur.fetchall()
         return books
     except Error as e:
-        print("Error selecting: " + str(e))
+        print(f"[DB][ERROR en query_codint] Código='{cod_str}': {e}")
+        return []
     finally:
-        if conn_sqlite:
+        if cur:
             cur.close()
+        if conn_sqlite:
             conn_sqlite.close()
 
 def total_bienes(total):

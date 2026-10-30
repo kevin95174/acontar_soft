@@ -15,6 +15,7 @@ from tkinter import messagebox as mb
 from db.query import (
     mostrar_datos,
     mostrar_d_personal,
+    buscar_oficinas_predictivo,
     obtener_id_inventory_record,
     query_codpat,
     total_bienes,
@@ -58,6 +59,7 @@ from gui.gui_ficha import Window_Acta
 from gui.gui_connection_test import Window_connection_test
 from gui.gui_view_data import Window_view_data
 from gui.gui_asset_photos import Window_asset_photos
+from gui.gui_estadisticas import Window_estadisticas
 from label.label_gen import build_label
 from services.local_print_server import LocalPrintServer
 from label.label_no_cat import build_label_nc
@@ -87,6 +89,11 @@ class Frame(ttk.Frame):
         self.fotos_bien_actual = []
         self.foto_idx_actual = 0
         self._select_debounce_job = None
+        self._popup_oficinas = None
+        self._listbox_oficinas = None
+        self._lbl_popup_info = None
+        self._resultados_oficinas_actuales = []
+        self._entry_activo_oficina = None
         
         self.pack(fill='both', expand=True)
         self.crear_menu()
@@ -109,6 +116,7 @@ class Frame(ttk.Frame):
         # Enlaces de teclado y eventos
         self.etrCodpat.bind("<Return>", lambda event: self.registrar(self.valor.get(), self.id.get()))
         self.etrnActa.bind("<Return>", lambda event: self.iniciar_filtro())
+        self.etrnActa.bind("<KeyRelease>", lambda _e: self._cerrar_popup_oficinas())
         self.tree.bind("<<TreeviewSelect>>", self._on_tree_select_sutil)
         self.tree.bind("<Double-Button-1>", self.mostrar_datos_)
 
@@ -252,6 +260,7 @@ class Frame(ttk.Frame):
         self.camp = tk.StringVar()
         self.filtro_fotos_var = tk.StringVar(value="Todos")
         self.resumen_fotos_acta_var = tk.StringVar(value="")
+        self.busqueda_oficina_var = tk.StringVar(value="")
 
     def frame_datos(self):
         # Contenedor superior (Frame1)
@@ -271,8 +280,10 @@ class Frame(ttk.Frame):
 
         self.frame1_1 = tk.Frame(self.card_ficha, bg='#ffffff')
         self.frame1_1.pack(fill="both", expand=True)
+        self.frame1_1.columnconfigure(2, weight=1)
+        self.frame1_1.columnconfigure(4, weight=1)
 
-        # Fila 0: Nro de Ficha y Búsqueda
+        # Fila 0: Nro de Ficha y Búsqueda + Buscador Predictivo de Oficina
         lblActa = ttk.Label(self.frame1_1, text="Nro de Ficha:", style='Bold.TLabel')
         lblActa.grid(column=0, row=0, padx=(2, 6), pady=4, sticky="w")
         self.lblActa = lblActa
@@ -289,7 +300,34 @@ class Frame(ttk.Frame):
             compound='left',
             style='Primary.TButton'
         )
-        self.btnbuscar.grid(column=2, row=0, padx=2, pady=4, sticky="w")
+        self.btnbuscar.grid(column=2, row=0, padx=(2, 10), pady=4, sticky="w")
+
+        lblBuscarOfi = ttk.Label(self.frame1_1, text="Buscar Oficina:", style='Bold.TLabel')
+        lblBuscarOfi.grid(column=3, row=0, padx=(2, 6), pady=4, sticky="w")
+
+        box_buscar_ofi = tk.Frame(self.frame1_1, bg='#ffffff')
+        box_buscar_ofi.grid(column=4, row=0, columnspan=2, padx=(0, 2), pady=4, sticky="ew")
+
+        self.etrBuscarOficina = ttk.Entry(
+            box_buscar_ofi,
+            textvariable=self.busqueda_oficina_var,
+            font=('Segoe UI', 9)
+        )
+        self.etrBuscarOficina.pack(side="left", fill="x", expand=True, padx=(0, 3))
+        self.etrBuscarOficina.bind(
+            "<FocusIn>",
+            lambda _e: self.etrBuscarOficina.after_idle(
+                lambda: self.etrBuscarOficina.select_range(0, tk.END)
+            )
+        )
+
+        self.btnDesplegarOfi = ttk.Button(
+            box_buscar_ofi,
+            text="▼",
+            width=3,
+            command=lambda: self._desplegar_todas_oficinas(self.etrBuscarOficina)
+        )
+        self.btnDesplegarOfi.pack(side="left")
 
         # Fila 1: Local y Responsable
         lblLocal = ttk.Label(self.frame1_1, text="Local:")
@@ -317,12 +355,15 @@ class Frame(ttk.Frame):
         self.etrDni = ttk.Entry(self.frame1_1, textvariable=self.dni, state='readonly')
         self.etrDni.grid(column=4, row=2, columnspan=2, padx=(0, 2), pady=3, sticky="ew")
 
-        # Fila 3: Oficina y Checkbox "Al Barrer"
+        # Fila 3: Oficina (también con búsqueda predictiva) y Checkbox "Al Barrer"
         lblOficina = ttk.Label(self.frame1_1, text="Oficina:")
         lblOficina.grid(column=0, row=3, padx=(2, 6), pady=3, sticky="w")
         self.lblOficina = lblOficina
-        self.etrOficina = ttk.Entry(self.frame1_1, textvariable=self.oficina, state='readonly')
+        self.etrOficina = ttk.Entry(self.frame1_1, textvariable=self.oficina, font=('Segoe UI', 9))
         self.etrOficina.grid(column=1, row=3, columnspan=2, padx=(0, 10), pady=3, sticky="ew")
+
+        self._vincular_busqueda_predictiva_oficina(self.etrBuscarOficina)
+        self._vincular_busqueda_predictiva_oficina(self.etrOficina)
 
         self.checkBar = ttk.Checkbutton(
             self.frame1_1,
@@ -606,10 +647,11 @@ class Frame(ttk.Frame):
         self.frame3.columnconfigure(0, weight=1)
         self.frame3.columnconfigure(1, weight=1)
         self.frame3.columnconfigure(2, weight=1)
+        self.frame3.columnconfigure(3, weight=1)
 
         # Card 1: Total Bienes
         card_tot = ttk.LabelFrame(self.frame3, text=" 📦 Total Bienes ", style='StatCard.TLabelframe', padding=(12, 6))
-        card_tot.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        card_tot.grid(row=0, column=0, sticky="ew", padx=(0, 4))
         
         box_tot = tk.Frame(card_tot, bg='#ffffff')
         box_tot.pack(fill='x')
@@ -625,7 +667,7 @@ class Frame(ttk.Frame):
 
         # Card 2: Bienes Sobrantes
         card_sob = ttk.LabelFrame(self.frame3, text=" ➕ Bienes Sobrantes ", style='StatCard.TLabelframe', padding=(12, 6))
-        card_sob.grid(row=0, column=1, sticky="ew", padx=(3, 3))
+        card_sob.grid(row=0, column=1, sticky="ew", padx=(2, 2))
 
         box_sob = tk.Frame(card_sob, bg='#ffffff')
         box_sob.pack(fill='x')
@@ -640,8 +682,8 @@ class Frame(ttk.Frame):
         self.btnSob.pack(side='right')
 
         # Card 3: Bienes Faltantes
-        card_fal = ttk.LabelFrame(self.frame3, text=" ⚠️ Bienes Faltantes / Pendientes ", style='StatCard.TLabelframe', padding=(12, 6))
-        card_fal.grid(row=0, column=2, sticky="ew", padx=(6, 0))
+        card_fal = ttk.LabelFrame(self.frame3, text=" ⚠️ Bienes Faltantes ", style='StatCard.TLabelframe', padding=(12, 6))
+        card_fal.grid(row=0, column=2, sticky="ew", padx=(2, 2))
 
         box_fal = tk.Frame(card_fal, bg='#ffffff')
         box_fal.pack(fill='x')
@@ -654,6 +696,21 @@ class Frame(ttk.Frame):
             command=lambda: Window_detalle(self, acta=self.valor.get(), valor=2, user=self.user, team=self.team)
         )
         self.btnFal.pack(side='right')
+
+        # Card 4: Estadísticas Globales del Inventario
+        card_est = ttk.LabelFrame(self.frame3, text=" 📊 Estadísticas Globales ", style='StatCard.TLabelframe', padding=(12, 6))
+        card_est.grid(row=0, column=3, sticky="ew", padx=(4, 0))
+
+        box_est = tk.Frame(card_est, bg='#ffffff')
+        box_est.pack(fill='x')
+        tk.Label(box_est, text="Dashboard", font=('Segoe UI', 10, 'bold'), bg='#ffffff', fg='#059669').pack(side='left', padx=(0, 6))
+        btnEst = ttk.Button(
+            box_est,
+            text='Ver Estadísticas',
+            style='Action.TButton',
+            command=lambda: Window_estadisticas(self)
+        )
+        btnEst.pack(side='right')
 
     def registrar(self, numero_ficha, codigo):
         # 1. Validaciones iniciales (Guard Clauses)
@@ -882,6 +939,288 @@ class Frame(ttk.Frame):
         my_tag = 'normal' if acta_ant_str == self.valor.get().strip() else 'fail'
         self.tree.insert('', tk.END, values=fila_tree, tags=(my_tag,))
 
+    # -------------------------------------------------------------------------
+    # BUSCADOR DE FICHA POR NOMBRE DE OFICINA CON TEXTO PREDICTIVO
+    # -------------------------------------------------------------------------
+    def _vincular_busqueda_predictiva_oficina(self, entry_widget):
+        entry_widget.bind("<KeyRelease>", lambda e, w=entry_widget: self._on_keyrelease_oficina(e, w))
+        entry_widget.bind("<Down>", lambda e, w=entry_widget: self._navegar_popup_oficina(1, w))
+        entry_widget.bind("<Up>", lambda e, w=entry_widget: self._navegar_popup_oficina(-1, w))
+        entry_widget.bind("<Next>", lambda e, w=entry_widget: self._navegar_popup_oficina(5, w))
+        entry_widget.bind("<Prior>", lambda e, w=entry_widget: self._navegar_popup_oficina(-5, w))
+        entry_widget.bind("<Return>", lambda e, w=entry_widget: self._confirmar_oficina_predictiva(w))
+        entry_widget.bind("<Escape>", lambda e: self._cerrar_popup_oficinas())
+        entry_widget.bind("<FocusOut>", lambda e: self.after(180, self._verificar_foco_popup_oficinas))
+
+    def _formatear_item_oficina_predictiva(self, fila):
+        acta, local, area, oficina, _dni, full_name = fila
+        ofi_txt = oficina or "(Sin nombre de oficina)"
+        detalles = []
+        if area:
+            detalles.append(area)
+        if local and local != area:
+            detalles.append(local)
+        ubic_txt = f" — {' / '.join(detalles)}" if detalles else ""
+        resp_txt = f"  |  👤 {full_name}" if full_name else ""
+        return f"🏢 {ofi_txt}   [Ficha: {acta}]{ubic_txt}{resp_txt}"
+
+    def _on_keyrelease_oficina(self, event, entry_widget):
+        teclas_ignorar = {
+            "Up", "Down", "Left", "Right", "Return", "Escape", "Tab",
+            "Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R",
+            "Caps_Lock", "Prior", "Next", "Home", "End"
+        }
+        if event.keysym in teclas_ignorar:
+            return
+
+        termino = entry_widget.get().strip()
+        if not termino:
+            self._cerrar_popup_oficinas()
+            return
+
+        resultados = buscar_oficinas_predictivo(termino, limite=35)
+        if not resultados:
+            self._mostrar_popup_oficinas(entry_widget, [], termino)
+            return
+
+        self._mostrar_popup_oficinas(entry_widget, resultados, termino)
+
+    def _desplegar_todas_oficinas(self, entry_widget=None):
+        target = entry_widget or self.etrBuscarOficina
+        if self._popup_oficinas is not None and self._popup_oficinas.winfo_exists():
+            self._cerrar_popup_oficinas()
+            return
+        termino = target.get().strip()
+        # Si el texto actual coincide exactamente con la oficina ya cargada, mostrar todas para facilitar cambiar
+        if termino and termino == self.oficina.get().strip():
+            resultados = buscar_oficinas_predictivo("", limite=60)
+        else:
+            resultados = buscar_oficinas_predictivo(termino, limite=60)
+        target.focus_set()
+        self._mostrar_popup_oficinas(target, resultados, termino)
+
+    def _mostrar_popup_oficinas(self, entry_widget, resultados, termino=""):
+        self._resultados_oficinas_actuales = list(resultados)
+        self._entry_activo_oficina = entry_widget
+
+        if self._popup_oficinas is None or not self._popup_oficinas.winfo_exists():
+            popup = Toplevel(self.root)
+            popup.wm_overrideredirect(True)
+            popup.transient(self.root)
+            popup.configure(bg="#2563eb")
+
+            contenedor = tk.Frame(popup, bg="#ffffff", bd=0)
+            contenedor.pack(fill="both", expand=True, padx=1, pady=1)
+
+            header = tk.Frame(contenedor, bg="#eff6ff", padx=8, pady=4)
+            header.pack(fill="x")
+
+            self._lbl_popup_info = tk.Label(
+                header,
+                text="",
+                bg="#eff6ff",
+                fg="#1e40af",
+                font=("Segoe UI", 8, "bold"),
+                anchor="w"
+            )
+            self._lbl_popup_info.pack(side="left", fill="x", expand=True)
+
+            lbl_Cerrar = tk.Label(
+                header,
+                text="✕",
+                bg="#eff6ff",
+                fg="#64748b",
+                font=("Segoe UI", 8, "bold"),
+                cursor="hand2",
+                padx=4
+            )
+            lbl_Cerrar.pack(side="right")
+            lbl_Cerrar.bind("<Button-1>", lambda _e: self._cerrar_popup_oficinas())
+
+            body = tk.Frame(contenedor, bg="#ffffff")
+            body.pack(fill="both", expand=True)
+
+            scrollbar = ttk.Scrollbar(body, orient=tk.VERTICAL)
+            listbox = tk.Listbox(
+                body,
+                font=("Segoe UI", 9),
+                bg="#ffffff",
+                fg="#0f172a",
+                selectbackground="#2563eb",
+                selectforeground="#ffffff",
+                activestyle="none",
+                highlightthickness=0,
+                bd=0,
+                yscrollcommand=scrollbar.set,
+                cursor="hand2"
+            )
+            scrollbar.config(command=listbox.yview)
+            listbox.pack(side="left", fill="both", expand=True, padx=(4, 0), pady=2)
+            scrollbar.pack(side="right", fill="y", pady=2)
+
+            listbox.bind("<ButtonRelease-1>", self._seleccionar_item_popup_oficina)
+            listbox.bind("<Return>", self._seleccionar_item_popup_oficina)
+            listbox.bind("<Escape>", lambda _e: self._cerrar_popup_oficinas())
+            listbox.bind("<Motion>", self._on_hover_popup_oficina)
+
+            self._popup_oficinas = popup
+            self._listbox_oficinas = listbox
+
+        listbox = self._listbox_oficinas
+        listbox.delete(0, tk.END)
+
+        if not resultados:
+            self._lbl_popup_info.config(
+                text=f"⚠️ Sin coincidencias para '{termino}'",
+                fg="#b91c1c"
+            )
+            listbox.insert(tk.END, "  No se encontraron oficinas que coincidan con la búsqueda.")
+            listbox.config(height=2, fg="#64748b")
+        else:
+            n = len(resultados)
+            primera = resultados[0]
+            self._lbl_popup_info.config(
+                text=f"✨ {n} {'oficina encontrada' if n == 1 else 'oficinas encontradas'} — ↑↓ navegar | Enter o clic: cargar [Ficha {primera[0]}]",
+                fg="#1e40af"
+            )
+            listbox.config(fg="#0f172a")
+            for fila in resultados:
+                listbox.insert(tk.END, self._formatear_item_oficina_predictiva(fila))
+            listbox.config(height=min(max(n, 2), 9))
+            listbox.selection_clear(0, tk.END)
+            listbox.selection_set(0)
+            listbox.activate(0)
+
+        self._posicionar_popup_oficinas(entry_widget)
+
+    def _posicionar_popup_oficinas(self, entry_widget):
+        if self._popup_oficinas is None or not self._popup_oficinas.winfo_exists():
+            return
+        try:
+            self.update_idletasks()
+            x = entry_widget.winfo_rootx()
+            y = entry_widget.winfo_rooty() + entry_widget.winfo_height() + 2
+            ancho = max(entry_widget.winfo_width() + 34, 480)
+            sw = self.winfo_screenwidth()
+            if x + ancho > sw - 12:
+                x = max(8, sw - ancho - 12)
+            self._popup_oficinas.geometry(f"{ancho}x{self._popup_oficinas.winfo_reqheight()}+{x}+{y}")
+            self._popup_oficinas.lift()
+        except Exception:
+            pass
+
+    def _on_hover_popup_oficina(self, event):
+        if not self._resultados_oficinas_actuales or self._listbox_oficinas is None:
+            return
+        idx = self._listbox_oficinas.nearest(event.y)
+        if 0 <= idx < len(self._resultados_oficinas_actuales):
+            self._listbox_oficinas.selection_clear(0, tk.END)
+            self._listbox_oficinas.selection_set(idx)
+            self._listbox_oficinas.activate(idx)
+            fila = self._resultados_oficinas_actuales[idx]
+            if self._lbl_popup_info is not None:
+                self._lbl_popup_info.config(
+                    text=f"✨ Seleccionar: {fila[3] or fila[2]} [Ficha {fila[0]}] — Enter o clic para cargar"
+                )
+
+    def _navegar_popup_oficina(self, delta, entry_widget):
+        if self._popup_oficinas is None or not self._popup_oficinas.winfo_exists():
+            self._desplegar_todas_oficinas(entry_widget)
+            return "break"
+
+        if not self._resultados_oficinas_actuales or self._listbox_oficinas is None:
+            return "break"
+
+        sel = self._listbox_oficinas.curselection()
+        actual = int(sel[0]) if sel else 0
+        nuevo = max(0, min(len(self._resultados_oficinas_actuales) - 1, actual + delta))
+        self._listbox_oficinas.selection_clear(0, tk.END)
+        self._listbox_oficinas.selection_set(nuevo)
+        self._listbox_oficinas.activate(nuevo)
+        self._listbox_oficinas.see(nuevo)
+
+        fila = self._resultados_oficinas_actuales[nuevo]
+        if self._lbl_popup_info is not None:
+            self._lbl_popup_info.config(
+                text=f"✨ Seleccionar: {fila[3] or fila[2]} [Ficha {fila[0]}] — Presione Enter para cargar"
+            )
+        return "break"
+
+    def _seleccionar_item_popup_oficina(self, _event=None):
+        if not self._resultados_oficinas_actuales or self._listbox_oficinas is None:
+            self._cerrar_popup_oficinas()
+            return "break"
+
+        sel = self._listbox_oficinas.curselection()
+        idx = int(sel[0]) if sel else 0
+        if 0 <= idx < len(self._resultados_oficinas_actuales):
+            fila = self._resultados_oficinas_actuales[idx]
+            self._aplicar_oficina_seleccionada(fila)
+        return "break"
+
+    def _confirmar_oficina_predictiva(self, entry_widget=None):
+        target = entry_widget or self.etrBuscarOficina
+        if (
+            self._popup_oficinas is not None
+            and self._popup_oficinas.winfo_exists()
+            and self._resultados_oficinas_actuales
+        ):
+            return self._seleccionar_item_popup_oficina()
+
+        termino = target.get().strip()
+        if not termino:
+            return "break"
+
+        resultados = buscar_oficinas_predictivo(termino, limite=35)
+        if not resultados:
+            mb.showinfo(
+                title="Búsqueda de Oficina",
+                message=f"No se encontró ninguna oficina que coincida con '{termino}'."
+            )
+            return "break"
+
+        if len(resultados) == 1:
+            self._aplicar_oficina_seleccionada(resultados[0])
+        else:
+            self._mostrar_popup_oficinas(target, resultados, termino)
+        return "break"
+
+    def _aplicar_oficina_seleccionada(self, fila_personal):
+        acta, local, area, oficina, dni, full_name = fila_personal
+        self._cerrar_popup_oficinas()
+        self.valor.set(str(acta or "").strip())
+        self.local.set(local or "")
+        self.area.set(area or "")
+        self.oficina.set(oficina or "")
+        self.busqueda_oficina_var.set(oficina or "")
+        self.dni.set(dni or "")
+        self.resp.set(full_name or "")
+        self.iniciar_filtro()
+        self.etrCodpat.focus_set()
+
+    def _verificar_foco_popup_oficinas(self):
+        if self._popup_oficinas is None or not self._popup_oficinas.winfo_exists():
+            return
+        try:
+            foco = self.root.focus_get()
+            if foco in (self.etrBuscarOficina, self.etrOficina, self._listbox_oficinas, self.btnDesplegarOfi):
+                return
+        except Exception:
+            pass
+        self._cerrar_popup_oficinas()
+
+    def _cerrar_popup_oficinas(self, _event=None):
+        if self._popup_oficinas is not None:
+            try:
+                if self._popup_oficinas.winfo_exists():
+                    self._popup_oficinas.destroy()
+            except Exception:
+                pass
+        self._popup_oficinas = None
+        self._listbox_oficinas = None
+        self._lbl_popup_info = None
+        self._resultados_oficinas_actuales = []
+
     def iniciar_filtro(self):
         try:
             tree_disponible = hasattr(self, 'tree') and self.tree.winfo_exists()
@@ -891,10 +1230,34 @@ class Frame(ttk.Frame):
         if not tree_disponible:
             return
 
+        if (
+            self._popup_oficinas is not None
+            and self._popup_oficinas.winfo_exists()
+            and self._resultados_oficinas_actuales
+        ):
+            self._seleccionar_item_popup_oficina()
+            return
+
+        self._cerrar_popup_oficinas()
         numero_ficha = self.valor.get().strip()
 
         if not numero_ficha:
-            mb.showinfo(message="Ingrese un número de ficha", title="¡Atención!")
+            termino_ofi = self.busqueda_oficina_var.get().strip() or self.oficina.get().strip()
+            if termino_ofi:
+                coincidencias = buscar_oficinas_predictivo(termino_ofi, limite=35)
+                if len(coincidencias) == 1:
+                    self._aplicar_oficina_seleccionada(coincidencias[0])
+                    return
+                elif len(coincidencias) > 1:
+                    self._mostrar_popup_oficinas(self.etrBuscarOficina, coincidencias, termino_ofi)
+                    return
+                else:
+                    mb.showinfo(
+                        message=f"No se encontró ninguna oficina que coincida con '{termino_ofi}'.",
+                        title="¡Atención!"
+                    )
+                    return
+            mb.showinfo(message="Ingrese un número de ficha o busque por nombre de oficina", title="¡Atención!")
             return
 
         # Limpiar Treeview
@@ -912,7 +1275,9 @@ class Frame(ttk.Frame):
             fila = datos_personal[0]
             self.local.set(fila[1] if len(fila) > 1 and fila[1] else "")
             self.area.set(fila[2] if len(fila) > 2 and fila[2] else "")
-            self.oficina.set(fila[3] if len(fila) > 3 and fila[3] else "")
+            ofi_val = fila[3] if len(fila) > 3 and fila[3] else ""
+            self.oficina.set(ofi_val)
+            self.busqueda_oficina_var.set(ofi_val)
             self.dni.set(fila[4] if len(fila) > 4 and fila[4] else "")
             self.resp.set(fila[5] if len(fila) > 5 and fila[5] else "")
 
@@ -1394,13 +1759,24 @@ class Frame(ttk.Frame):
         opc5_menu = Menu(barra_menu, tearoff=0)
         barra_menu.add_cascade(label="Inventario", menu=opc5_menu)
         opc5_menu.add_command(label="Importar / Exportar Inventario", command=lambda: Window_inv())
+        opc5_menu.add_command(label="📊 Estadísticas del Inventario", command=lambda: Window_estadisticas(self))
 
         opc6_menu = Menu(barra_menu, tearoff=0)
         barra_menu.add_cascade(label="Vehículos", menu=opc6_menu)
         opc6_menu.add_command(label="Ficha Vehicular", command=lambda: Window_vehiculos())
 
+        # Menú Estadísticas
+        opc_est_menu = Menu(barra_menu, tearoff=0)
+        barra_menu.add_cascade(label="📊 Estadísticas", menu=opc_est_menu)
+        opc_est_menu.add_command(label="📊 Panel General de Estadísticas y Dashboard", command=lambda: Window_estadisticas(self))
+        opc_est_menu.add_separator()
+        opc_est_menu.add_command(label="Avance por Ubicación", command=lambda: Window_analisis(valor=1))
+        opc_est_menu.add_command(label="Avance por Cuenta Contable", command=lambda: Window_analisis(valor=2))
+
         opc7_menu = Menu(barra_menu, tearoff=0)
         barra_menu.add_cascade(label="Análisis", menu=opc7_menu)
+        opc7_menu.add_command(label="📊 Panel de Estadísticas y Dashboard", command=lambda: Window_estadisticas(self))
+        opc7_menu.add_separator()
         opc7_menu.add_command(label="Por Ubicación", command=lambda: Window_analisis(valor=1))
         opc7_menu.add_command(label="Por Cuenta Contable", command=lambda: Window_analisis(valor=2))
         opc7_menu.add_command(label="Por Denominación", command=lambda: Window_analisis(valor=3))

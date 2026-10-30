@@ -208,8 +208,36 @@ class ApiManagerAcontarSacClient:
         return self._post_json("update_technical_details", payload)
 
     def create_or_update_location(self, payload: dict) -> dict:
-        """Crea o actualiza una ubicación/ficha en el servidor."""
-        return self._post_json("create_location", payload)
+        """
+        Crea o actualiza una ubicación en el servidor (POST /query/response/create_or_update_location).
+        Si se incluye 'id' (int), el servidor actualiza el registro existente;
+        si se omite o envía None/null, crea un nuevo registro.
+        """
+        def _opt_str(val):
+            if val is None:
+                return None
+            s = str(val).strip()
+            return s if s != "" else None
+
+        raw_id = payload.get("id")
+        clean_id = None
+        if raw_id is not None and str(raw_id).strip() != "":
+            try:
+                clean_id = int(raw_id)
+            except (ValueError, TypeError):
+                clean_id = None
+
+        request_body = {
+            "id": clean_id,
+            "codigo_ubicacion": str(payload.get("codigo_ubicacion") or "").strip(),
+            "local": _opt_str(payload.get("local")),
+            "area": _opt_str(payload.get("area")),
+            "oficina": _opt_str(payload.get("oficina")),
+            "piso": _opt_str(payload.get("piso")),
+            "direccion": _opt_str(payload.get("direccion")),
+            "codigo_personal": _opt_str(payload.get("codigo_personal")),
+        }
+        return self._post_json("create_location", request_body)
 
     def create_or_update_personnel(self, payload: dict) -> dict:
         """Crea o actualiza un registro de personal/responsable en el servidor."""

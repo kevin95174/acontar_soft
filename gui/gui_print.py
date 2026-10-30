@@ -1,4 +1,5 @@
 import os
+import traceback
 import configparser
 import tkinter as tk
 import fitz
@@ -10,9 +11,16 @@ from db.query import (
 	data_label_ubi, 
 	datos_iniciales, 
 	actualizar_datos, 
-	mostrar_datos_sobrante
+	mostrar_datos_sobrante,
+	buscar_oficinas_predictivo
 )
-from label.label_gen import build_label, build_label_batch
+from label.label_gen import (
+	build_label, 
+	build_label_batch,
+	obtener_impresoras_sistema,
+	obtener_impresora_configurada,
+	guardar_impresora_configurada
+)
 from label.label_sobrante import build_label_sobrante
 from services.label_batch_service import (
 	obtener_oficinas, 
@@ -21,6 +29,20 @@ from services.label_batch_service import (
 	filtrar_oficinas_predictivo,
 	buscar_oficina_por_codigo
 )
+
+
+def _resolver_codigo_impresion(bien):
+	"""
+	Obtiene el código más específico para buscar/imprimir un bien:
+	si codpat es vacío, 'NO CATALOGADO' o 'S/C', prioriza codint.
+	"""
+	if not isinstance(bien, dict):
+		return str(bien or "").strip()
+	codpat = str(bien.get("codpat") or bien.get("CodPat") or "").strip()
+	codint = str(bien.get("codint") or bien.get("CodInt") or "").strip()
+	if codpat and codpat.upper() not in ("NO CATALOGADO", "S/C", "SIN CODIGO", "SIN CÓDIGO", "---", "-"):
+		return codpat
+	return codint or codpat
 
 class Window_print(tk.Toplevel):
 	"""Ventana principal de impresión de etiquetas en lote y por oficina."""
@@ -34,6 +56,7 @@ class Window_print(tk.Toplevel):
 		self.config_path = 'config.ini'
 		self.config = configparser.ConfigParser()
 		self.img_label_path = None
+		self.impresora_var = tk.StringVar()
 		self.grab_set()
 		self.focus_set()
 
@@ -53,6 +76,7 @@ class Window_print(tk.Toplevel):
 		self.tab_ajustes_init()
 		self.load_config()
 		self.cargar_imagen_guardada()
+		self._cargar_impresoras()
 
 		# Si se abrió explícitamente para sobrantes (valor == 2), abrir popup de sobrante
 		if self.valor == 2:
@@ -141,6 +165,15 @@ class Window_print(tk.Toplevel):
 		self.lote_items = []
 		self.lote_photo = None
 
+		# Variables para el popup predictivo de búsqueda de oficinas (igual a gui_app.py)
+		self._popup_oficinas = None
+		self._listbox_oficinas = None
+		self._lbl_popup_info = None
+		self._resultados_oficinas_actuales = []
+		self._entry_activo_oficina = None
+		self.bind("<Unmap>", lambda _e: self._cerrar_popup_oficinas())
+		self.bind("<Destroy>", lambda _e: self._cerrar_popup_oficinas())
+
 		# Variables para los campos de detalle del bien seleccionado
 		self.prev_codpat = tk.StringVar()
 		self.prev_codint = tk.StringVar()
@@ -159,7 +192,7 @@ class Window_print(tk.Toplevel):
 		frame_filtros = ttk.LabelFrame(container, text=" 🔎 Selección de Oficina, Filtros y Entrada de Bienes ", style="Print.TLabelframe", padding=8)
 		frame_filtros.pack(fill="x", pady=(0, 8))
 
-		# Fila 0: Búsqueda por Código, Combobox Predictivo, Filtro de Estado y Botón Cargar
+		# Fila 0: Búsqueda por Código, Buscador Predictivo de Oficina, Filtro de Estado y Botón Cargar
 		lblCodOfi = ttk.Label(frame_filtros, text="Cód. Oficina:")
 		lblCodOfi.grid(row=0, column=0, padx=4, pady=4, sticky="w")
 
@@ -168,14 +201,32 @@ class Window_print(tk.Toplevel):
 		self.etr_cod_oficina.bind("<KeyRelease>", self._on_cod_oficina_keyrelease)
 		self.etr_cod_oficina.bind("<Return>", lambda _e: self.cargar_bienes_lote())
 
-		lblOfi = ttk.Label(frame_filtros, text="Oficina:")
+		lblOfi = ttk.Label(frame_filtros, text="Buscar Oficina:")
 		lblOfi.grid(row=0, column=2, padx=4, pady=4, sticky="w")
 
-		self.cbx_lote_oficinas = ttk.Combobox(frame_filtros, textvariable=self.lote_oficina_sel, state="normal", width=34)
-		self.cbx_lote_oficinas.grid(row=0, column=3, padx=4, pady=4, sticky="ew")
-		self.cbx_lote_oficinas.bind("<KeyRelease>", self._on_oficina_keyrelease)
-		self.cbx_lote_oficinas.bind("<<ComboboxSelected>>", self._on_lote_oficina_select)
-		self.cbx_lote_oficinas.bind("<Return>", self._on_oficina_return)
+		frame_busq_ofi = tk.Frame(frame_filtros, bg="#ffffff")
+		frame_busq_ofi.grid(row=0, column=3, padx=4, pady=4, sticky="ew")
+		frame_busq_ofi.columnconfigure(0, weight=1)
+
+		self.etr_lote_oficinas = ttk.Entry(
+			frame_busq_ofi,
+			textvariable=self.lote_oficina_sel,
+			width=32,
+			font=("Segoe UI", 9)
+		)
+		self.etr_lote_oficinas.grid(row=0, column=0, sticky="ew")
+		self.etr_lote_oficinas.bind("<FocusIn>", lambda _e: self.etr_lote_oficinas.select_range(0, tk.END))
+		self.cbx_lote_oficinas = self.etr_lote_oficinas
+
+		self.btn_desplegar_ofi = ttk.Button(
+			frame_busq_ofi,
+			text="▼",
+			width=3,
+			command=lambda: self._desplegar_todas_oficinas(self.etr_lote_oficinas)
+		)
+		self.btn_desplegar_ofi.grid(row=0, column=1, padx=(3, 0))
+
+		self._vincular_busqueda_predictiva_oficina(self.etr_lote_oficinas)
 
 		lblFiltro = ttk.Label(frame_filtros, text="Estado:")
 		lblFiltro.grid(row=0, column=4, padx=(8, 4), pady=4, sticky="w")
@@ -222,13 +273,37 @@ class Window_print(tk.Toplevel):
 		btnPopup = ttk.Button(frame_filtros, text="🔍 Búsqueda Detallada...", command=self.abrir_popup_individual)
 		btnPopup.grid(row=1, column=7, padx=(4, 4), pady=4, sticky="ew")
 
-		# Fila 2: Checkbox para imprimir automáticamente al agregar
+		# Fila 2: Selector de Impresora y Checkbox para imprimir automáticamente al agregar
+		lblImp = ttk.Label(frame_filtros, text="Impresora:")
+		lblImp.grid(row=2, column=0, columnspan=2, padx=4, pady=(2, 4), sticky="w")
+
+		frame_imp_sel = tk.Frame(frame_filtros, bg="#ffffff")
+		frame_imp_sel.grid(row=2, column=2, columnspan=2, padx=4, pady=(2, 4), sticky="ew")
+		frame_imp_sel.columnconfigure(0, weight=1)
+
+		self.cbx_impresora_lote = ttk.Combobox(
+			frame_imp_sel,
+			textvariable=self.impresora_var,
+			state="readonly",
+			font=("Segoe UI", 9)
+		)
+		self.cbx_impresora_lote.grid(row=0, column=0, sticky="ew")
+		self.cbx_impresora_lote.bind("<<ComboboxSelected>>", self._on_impresora_seleccionada)
+
+		btn_refresh_imp = ttk.Button(
+			frame_imp_sel,
+			text="🔄",
+			width=3,
+			command=self._cargar_impresoras
+		)
+		btn_refresh_imp.grid(row=0, column=1, padx=(3, 0))
+
 		chkImpAlAgregar = ttk.Checkbutton(
 			frame_filtros, 
 			text="🖨️ Imprimir automáticamente al agregar a la lista", 
 			variable=self.imprimir_al_agregar
 		)
-		chkImpAlAgregar.grid(row=2, column=2, columnspan=5, padx=4, pady=(2, 4), sticky="w")
+		chkImpAlAgregar.grid(row=2, column=4, columnspan=4, padx=(8, 4), pady=(2, 4), sticky="w")
 
 		frame_filtros.columnconfigure(3, weight=2)
 		frame_filtros.columnconfigure(5, weight=1)
@@ -384,76 +459,304 @@ class Window_print(tk.Toplevel):
 		self._cargar_oficinas_combobox()
 
 	# -------------------------------------------------------------------------
-	# LÓGICA DE BÚSQUEDA Y SINCRONIZACIÓN DE OFICINA
+	# LÓGICA DE BÚSQUEDA Y SINCRONIZACIÓN DE OFICINA (POPUP PREDICTIVO)
 	# -------------------------------------------------------------------------
 	def _cargar_oficinas_combobox(self):
 		try:
 			self.lote_oficinas_data = obtener_oficinas()
-			valores = [o["display"] for o in self.lote_oficinas_data]
-			self.cbx_lote_oficinas["values"] = valores
 			if self.lote_oficinas_data:
 				primera = self.lote_oficinas_data[0]
 				self.lote_cod_oficina.set(primera["acta"])
-				self.lote_oficina_sel.set(primera["display"])
+				self.lote_oficina_sel.set(primera["oficina"])
 				self.lote_ofic_personalizada.set(primera["oficina"])
 		except Exception as e:
 			print(f"Error cargando oficinas en lote: {e}")
 
+	def _vincular_busqueda_predictiva_oficina(self, entry_widget):
+		entry_widget.bind("<KeyRelease>", lambda e, w=entry_widget: self._on_keyrelease_oficina(e, w))
+		entry_widget.bind("<Down>", lambda e, w=entry_widget: self._navegar_popup_oficina(1, w))
+		entry_widget.bind("<Up>", lambda e, w=entry_widget: self._navegar_popup_oficina(-1, w))
+		entry_widget.bind("<Next>", lambda e, w=entry_widget: self._navegar_popup_oficina(5, w))
+		entry_widget.bind("<Prior>", lambda e, w=entry_widget: self._navegar_popup_oficina(-5, w))
+		entry_widget.bind("<Return>", lambda e, w=entry_widget: self._confirmar_oficina_predictiva(w))
+		entry_widget.bind("<Escape>", lambda e: self._cerrar_popup_oficinas())
+		entry_widget.bind("<FocusOut>", lambda e: self.after(180, self._verificar_foco_popup_oficinas))
+
+	def _formatear_item_oficina_predictiva(self, fila):
+		acta, local, area, oficina, _dni, full_name = fila
+		ofi_txt = oficina or "(Sin nombre de oficina)"
+		detalles = []
+		if area:
+			detalles.append(area)
+		if local and local != area:
+			detalles.append(local)
+		ubic_txt = f" — {' / '.join(detalles)}" if detalles else ""
+		resp_txt = f"  |  👤 {full_name}" if full_name else ""
+		return f"🏢 {ofi_txt}   [Ficha: {acta}]{ubic_txt}{resp_txt}"
+
+	def _on_keyrelease_oficina(self, event, entry_widget):
+		teclas_ignorar = {
+			"Up", "Down", "Left", "Right", "Return", "Escape", "Tab",
+			"Shift_L", "Shift_R", "Control_L", "Control_R", "Alt_L", "Alt_R",
+			"Caps_Lock", "Prior", "Next", "Home", "End"
+		}
+		if event.keysym in teclas_ignorar:
+			return
+
+		termino = entry_widget.get().strip()
+		if not termino:
+			self._cerrar_popup_oficinas()
+			return
+
+		resultados = buscar_oficinas_predictivo(termino, limite=35)
+		if not resultados:
+			self._mostrar_popup_oficinas(entry_widget, [], termino)
+			return
+
+		self._mostrar_popup_oficinas(entry_widget, resultados, termino)
+
+	def _desplegar_todas_oficinas(self, entry_widget=None):
+		target = entry_widget or self.etr_lote_oficinas
+		if self._popup_oficinas is not None and self._popup_oficinas.winfo_exists():
+			self._cerrar_popup_oficinas()
+			return
+		termino = target.get().strip()
+		# Si el texto actual coincide exactamente con la oficina ya cargada, mostrar todas para facilitar cambiar
+		if termino and (termino == self.lote_ofic_personalizada.get().strip() or termino.startswith("[")):
+			resultados = buscar_oficinas_predictivo("", limite=60)
+		else:
+			resultados = buscar_oficinas_predictivo(termino, limite=60)
+		target.focus_set()
+		self._mostrar_popup_oficinas(target, resultados, termino)
+
+	def _mostrar_popup_oficinas(self, entry_widget, resultados, termino=""):
+		self._resultados_oficinas_actuales = list(resultados)
+		self._entry_activo_oficina = entry_widget
+
+		if self._popup_oficinas is None or not self._popup_oficinas.winfo_exists():
+			popup = tk.Toplevel(self)
+			popup.wm_overrideredirect(True)
+			popup.transient(self)
+			popup.configure(bg="#2563eb")
+
+			contenedor = tk.Frame(popup, bg="#ffffff", bd=0)
+			contenedor.pack(fill="both", expand=True, padx=1, pady=1)
+
+			header = tk.Frame(contenedor, bg="#eff6ff", padx=8, pady=4)
+			header.pack(fill="x")
+
+			self._lbl_popup_info = tk.Label(
+				header,
+				text="",
+				bg="#eff6ff",
+				fg="#1e40af",
+				font=("Segoe UI", 8, "bold"),
+				anchor="w"
+			)
+			self._lbl_popup_info.pack(side="left", fill="x", expand=True)
+
+			lbl_Cerrar = tk.Label(
+				header,
+				text="✕",
+				bg="#eff6ff",
+				fg="#64748b",
+				font=("Segoe UI", 8, "bold"),
+				cursor="hand2",
+				padx=4
+			)
+			lbl_Cerrar.pack(side="right")
+			lbl_Cerrar.bind("<Button-1>", lambda _e: self._cerrar_popup_oficinas())
+
+			body = tk.Frame(contenedor, bg="#ffffff")
+			body.pack(fill="both", expand=True)
+
+			scrollbar = ttk.Scrollbar(body, orient=tk.VERTICAL)
+			listbox = tk.Listbox(
+				body,
+				font=("Segoe UI", 9),
+				bg="#ffffff",
+				fg="#0f172a",
+				selectbackground="#2563eb",
+				selectforeground="#ffffff",
+				activestyle="none",
+				highlightthickness=0,
+				bd=0,
+				yscrollcommand=scrollbar.set,
+				cursor="hand2"
+			)
+			scrollbar.config(command=listbox.yview)
+			listbox.pack(side="left", fill="both", expand=True, padx=(4, 0), pady=2)
+			scrollbar.pack(side="right", fill="y", pady=2)
+
+			listbox.bind("<ButtonRelease-1>", self._seleccionar_item_popup_oficina)
+			listbox.bind("<Return>", self._seleccionar_item_popup_oficina)
+			listbox.bind("<Escape>", lambda _e: self._cerrar_popup_oficinas())
+			listbox.bind("<Motion>", self._on_hover_popup_oficina)
+
+			self._popup_oficinas = popup
+			self._listbox_oficinas = listbox
+
+		listbox = self._listbox_oficinas
+		listbox.delete(0, tk.END)
+
+		if not resultados:
+			self._lbl_popup_info.config(
+				text=f"⚠️ Sin coincidencias para '{termino}'",
+				fg="#b91c1c"
+			)
+			listbox.insert(tk.END, "  No se encontraron oficinas que coincidan con la búsqueda.")
+			listbox.config(height=2, fg="#64748b")
+		else:
+			n = len(resultados)
+			primera = resultados[0]
+			self._lbl_popup_info.config(
+				text=f"✨ {n} {'oficina encontrada' if n == 1 else 'oficinas encontradas'} — ↑↓ navegar | Enter o clic: cargar [Ficha {primera[0]}]",
+				fg="#1e40af"
+			)
+			listbox.config(fg="#0f172a")
+			for fila in resultados:
+				listbox.insert(tk.END, self._formatear_item_oficina_predictiva(fila))
+			listbox.config(height=min(max(n, 2), 9))
+			listbox.selection_clear(0, tk.END)
+			listbox.selection_set(0)
+			listbox.activate(0)
+
+		self._posicionar_popup_oficinas(entry_widget)
+
+	def _posicionar_popup_oficinas(self, entry_widget):
+		if self._popup_oficinas is None or not self._popup_oficinas.winfo_exists():
+			return
+		try:
+			self.update_idletasks()
+			x = entry_widget.winfo_rootx()
+			y = entry_widget.winfo_rooty() + entry_widget.winfo_height() + 2
+			ancho = max(entry_widget.winfo_width() + 34, 480)
+			sw = self.winfo_screenwidth()
+			if x + ancho > sw - 12:
+				x = max(8, sw - ancho - 12)
+			self._popup_oficinas.geometry(f"{ancho}x{self._popup_oficinas.winfo_reqheight()}+{x}+{y}")
+			self._popup_oficinas.lift()
+		except Exception:
+			pass
+
+	def _on_hover_popup_oficina(self, event):
+		if not self._resultados_oficinas_actuales or self._listbox_oficinas is None:
+			return
+		idx = self._listbox_oficinas.nearest(event.y)
+		if 0 <= idx < len(self._resultados_oficinas_actuales):
+			self._listbox_oficinas.selection_clear(0, tk.END)
+			self._listbox_oficinas.selection_set(idx)
+			self._listbox_oficinas.activate(idx)
+			fila = self._resultados_oficinas_actuales[idx]
+			if self._lbl_popup_info is not None:
+				self._lbl_popup_info.config(
+					text=f"✨ Seleccionar: {fila[3] or fila[2]} [Ficha {fila[0]}] — Enter o clic para cargar"
+				)
+
+	def _navegar_popup_oficina(self, delta, entry_widget):
+		if self._popup_oficinas is None or not self._popup_oficinas.winfo_exists():
+			self._desplegar_todas_oficinas(entry_widget)
+			return "break"
+
+		if not self._resultados_oficinas_actuales or self._listbox_oficinas is None:
+			return "break"
+
+		sel = self._listbox_oficinas.curselection()
+		actual = int(sel[0]) if sel else 0
+		nuevo = max(0, min(len(self._resultados_oficinas_actuales) - 1, actual + delta))
+		self._listbox_oficinas.selection_clear(0, tk.END)
+		self._listbox_oficinas.selection_set(nuevo)
+		self._listbox_oficinas.activate(nuevo)
+		self._listbox_oficinas.see(nuevo)
+
+		fila = self._resultados_oficinas_actuales[nuevo]
+		if self._lbl_popup_info is not None:
+			self._lbl_popup_info.config(
+				text=f"✨ Seleccionar: {fila[3] or fila[2]} [Ficha {fila[0]}] — Presione Enter para cargar"
+			)
+		return "break"
+
+	def _seleccionar_item_popup_oficina(self, _event=None):
+		if not self._resultados_oficinas_actuales or self._listbox_oficinas is None:
+			self._cerrar_popup_oficinas()
+			return "break"
+
+		sel = self._listbox_oficinas.curselection()
+		idx = int(sel[0]) if sel else 0
+		if 0 <= idx < len(self._resultados_oficinas_actuales):
+			fila = self._resultados_oficinas_actuales[idx]
+			self._aplicar_oficina_seleccionada(fila)
+		return "break"
+
+	def _confirmar_oficina_predictiva(self, entry_widget=None):
+		target = entry_widget or self.etr_lote_oficinas
+		if (
+			self._popup_oficinas is not None
+			and self._popup_oficinas.winfo_exists()
+			and self._resultados_oficinas_actuales
+		):
+			return self._seleccionar_item_popup_oficina()
+
+		termino = target.get().strip()
+		if not termino:
+			return "break"
+
+		resultados = buscar_oficinas_predictivo(termino, limite=35)
+		if not resultados:
+			mb.showinfo(
+				title="Búsqueda de Oficina",
+				message=f"No se encontró ninguna oficina que coincida con '{termino}'.",
+				parent=self
+			)
+			return "break"
+
+		if len(resultados) == 1:
+			self._aplicar_oficina_seleccionada(resultados[0])
+		else:
+			self._mostrar_popup_oficinas(target, resultados, termino)
+		return "break"
+
+	def _aplicar_oficina_seleccionada(self, fila_personal):
+		acta, local, area, oficina, _dni, _full_name = fila_personal
+		self._cerrar_popup_oficinas()
+		nombre_ofi = (oficina or area or local or "").strip()
+		self.lote_cod_oficina.set(str(acta or "").strip())
+		self.lote_oficina_sel.set(nombre_ofi)
+		self.lote_ofic_personalizada.set(nombre_ofi)
+		self.cargar_bienes_lote()
+
+	def _verificar_foco_popup_oficinas(self):
+		if self._popup_oficinas is None or not self._popup_oficinas.winfo_exists():
+			return
+		try:
+			foco = self.focus_get()
+			if foco in (self.etr_lote_oficinas, self._listbox_oficinas, self.btn_desplegar_ofi):
+				return
+		except Exception:
+			pass
+		self._cerrar_popup_oficinas()
+
+	def _cerrar_popup_oficinas(self, _event=None):
+		if self._popup_oficinas is not None:
+			try:
+				if self._popup_oficinas.winfo_exists():
+					self._popup_oficinas.destroy()
+			except Exception:
+				pass
+		self._popup_oficinas = None
+		self._listbox_oficinas = None
+		self._lbl_popup_info = None
+		self._resultados_oficinas_actuales = []
+
 	def _on_cod_oficina_keyrelease(self, _event=None):
+		self._cerrar_popup_oficinas()
 		codigo = self.lote_cod_oficina.get().strip()
 		if not codigo:
 			return
 		ofi = buscar_oficina_por_codigo(codigo, self.lote_oficinas_data)
 		if ofi:
-			self.lote_oficina_sel.set(ofi["display"])
+			self.lote_oficina_sel.set(ofi["oficina"])
 			self.lote_ofic_personalizada.set(ofi["oficina"])
-		else:
-			coincidentes = filtrar_oficinas_predictivo(codigo, self.lote_oficinas_data)
-			if coincidentes:
-				self.cbx_lote_oficinas["values"] = [o["display"] for o in coincidentes]
-
-	def _on_oficina_keyrelease(self, event):
-		if event.keysym in ("Up", "Down", "Left", "Right", "Tab", "Escape"):
-			return
-		if event.keysym == "Return":
-			return self._on_oficina_return()
-
-		texto = self.cbx_lote_oficinas.get().strip()
-		if not texto:
-			self.cbx_lote_oficinas["values"] = [o["display"] for o in self.lote_oficinas_data]
-			return
-
-		coincidentes = filtrar_oficinas_predictivo(texto, self.lote_oficinas_data)
-		valores = [o["display"] for o in coincidentes]
-		self.cbx_lote_oficinas["values"] = valores
-
-		if coincidentes:
-			primer_ofi = coincidentes[0]
-			if primer_ofi["acta"] == texto or primer_ofi["oficina"].lower().startswith(texto.lower()):
-				self.lote_cod_oficina.set(primer_ofi["acta"])
-				self.lote_ofic_personalizada.set(primer_ofi["oficina"])
-
-	def _on_oficina_return(self, _event=None):
-		valores = self.cbx_lote_oficinas["values"]
-		if valores and len(valores) > 0:
-			primer_display = valores[0]
-			self.lote_oficina_sel.set(primer_display)
-			for o in self.lote_oficinas_data:
-				if o["display"] == primer_display:
-					self.lote_cod_oficina.set(o["acta"])
-					self.lote_ofic_personalizada.set(o["oficina"])
-					break
-			self.cbx_lote_oficinas["values"] = [o["display"] for o in self.lote_oficinas_data]
-			self.cargar_bienes_lote()
-
-	def _on_lote_oficina_select(self, _event=None):
-		sel = self.lote_oficina_sel.get().strip()
-		for o in self.lote_oficinas_data:
-			if o["display"] == sel:
-				self.lote_cod_oficina.set(o["acta"])
-				self.lote_ofic_personalizada.set(o["oficina"])
-				break
-		self.cbx_lote_oficinas["values"] = [o["display"] for o in self.lote_oficinas_data]
 
 	def _resolver_acta_actual(self):
 		cod = self.lote_cod_oficina.get().strip()
@@ -468,6 +771,15 @@ class Window_print(tk.Toplevel):
 		for o in self.lote_oficinas_data:
 			if o["display"] == sel or o["oficina"] == sel:
 				return o["acta"]
+		if sel:
+			coincidencias = buscar_oficinas_predictivo(sel, limite=5)
+			if len(coincidencias) == 1:
+				fila = coincidencias[0]
+				self.lote_cod_oficina.set(str(fila[0] or "").strip())
+				nombre_ofi = (fila[3] or fila[2] or fila[1] or "").strip()
+				self.lote_oficina_sel.set(nombre_ofi)
+				self.lote_ofic_personalizada.set(nombre_ofi)
+				return str(fila[0] or "").strip()
 		return None
 
 	def _on_estado_filtro_select(self, _event=None):
@@ -483,6 +795,16 @@ class Window_print(tk.Toplevel):
 				self.etr_lote_add.focus_set()
 
 	def cargar_bienes_lote(self):
+		if (
+			self._popup_oficinas is not None
+			and self._popup_oficinas.winfo_exists()
+			and self._resultados_oficinas_actuales
+		):
+			self._seleccionar_item_popup_oficina()
+			return
+
+		self._cerrar_popup_oficinas()
+
 		filtro_txt = self.lote_filtro_sel.get()
 		if "nueva lista" in filtro_txt.lower():
 			self.nueva_lista_lote()
@@ -497,6 +819,12 @@ class Window_print(tk.Toplevel):
 
 		acta = self._resolver_acta_actual()
 		if not acta:
+			termino_ofi = self.lote_oficina_sel.get().strip()
+			if termino_ofi:
+				coincidencias = buscar_oficinas_predictivo(termino_ofi, limite=35)
+				if len(coincidencias) > 1:
+					self._mostrar_popup_oficinas(self.etr_lote_oficinas, coincidencias, termino_ofi)
+					return
 			mb.showerror(title="Atención", message="Ingrese un código de oficina válido o seleccione una oficina de la lista.", parent=self)
 			return
 
@@ -629,7 +957,8 @@ class Window_print(tk.Toplevel):
 						self.lote_photo = ImageTk.PhotoImage(pil_img)
 						self.lbl_lote_preview.config(image=self.lote_photo, text="")
 		except Exception as e:
-			print(f"Error generando vista previa de entrada: {e}")
+			print(f"[GUI_PRINT][ERROR] Error generando vista previa de entrada para '{codigo}': {e}")
+			traceback.print_exc()
 
 		self.etr_lote_add.focus_set()
 		return True
@@ -646,6 +975,7 @@ class Window_print(tk.Toplevel):
 		else:
 			bien_a_agregar = buscar_bien_por_codigo(codigo)
 			if not bien_a_agregar:
+				print(f"[GUI_PRINT][WARN] agregar_codigo_lote: no se encontró ningún bien con el código '{codigo}'")
 				mb.showerror(title="No encontrado", message=f"No se encontró ningún bien con el código '{codigo}'.", parent=self)
 				return
 			ofic_activa = self.lote_ofic_personalizada.get().strip()
@@ -669,20 +999,43 @@ class Window_print(tk.Toplevel):
 			bien["oficina_etiqueta"] = ofic_global
 
 		# Verificar si ya existe en la lista
-		cod_id = bien.get("codpat") or bien.get("codint")
+		cod_id = _resolver_codigo_impresion(bien)
 		for item in self.lote_items:
-			if (item.get("codpat") and item["codpat"] == bien.get("codpat")) or (item.get("codint") and item["codint"] == bien.get("codint")):
+			mismo_codpat = bool(item.get("codpat") and bien.get("codpat") and item["codpat"] == bien.get("codpat") and str(bien.get("codpat")).upper() != "NO CATALOGADO")
+			mismo_codint = bool(item.get("codint") and bien.get("codint") and str(item["codint"]) == str(bien.get("codint")))
+			if mismo_codpat or mismo_codint:
 				if not mb.askyesno(title="Ya existe", message=f"El bien con código {cod_id} ya está en la lista.\n¿Desea agregarlo nuevamente?", parent=self):
 					return False
 				break
 
 		# Si está activado imprimir al agregar, enviar inmediatamente a la impresora
+		impreso_ok = False
 		if self.imprimir_al_agregar.get():
+			cod_print  = _resolver_codigo_impresion(bien)
+			acta_print = bien.get("inv") or bien.get("acta_ant") or "1"
+			ofic_print = bien.get("oficina_etiqueta")
+			imp_activa = self.impresora_var.get().strip()
+			print(
+				f"[GUI_PRINT][_ejecutar_agregar_bien] Impresión automática activada -> "
+				f"cod_print='{cod_print}', acta_print='{acta_print}', oficina='{ofic_print}', impresora='{imp_activa}', bien={bien}"
+			)
 			try:
-				cod_print  = bien.get("codpat") or bien.get("codint")
-				acta_print = bien.get("inv") or bien.get("acta_ant") or "1"
-				build_label(1, cod_print, acta_print, oficina_personalizada=bien.get("oficina_etiqueta"))
+				build_label(
+					1,
+					cod_print,
+					acta_print,
+					oficina_personalizada=ofic_print,
+					bien_data=bien,
+					impresora=imp_activa
+				)
+				impreso_ok = True
+				print(f"[GUI_PRINT][_ejecutar_agregar_bien] Impresión automática exitosa para '{cod_print}' en '{imp_activa}'")
 			except Exception as e:
+				print(
+					f"[GUI_PRINT][ERROR CRÍTICO] Falló la impresión automática al agregar -> "
+					f"cod_print='{cod_print}', acta_print='{acta_print}', oficina='{ofic_print}', impresora='{imp_activa}', error={type(e).__name__}: {e}"
+				)
+				traceback.print_exc()
 				mb.showerror(title="Error al imprimir", message=f"No se pudo imprimir la etiqueta automáticamente:\n{e}", parent=self)
 
 		self.lote_items.append(bien)
@@ -696,10 +1049,10 @@ class Window_print(tk.Toplevel):
 			self.previsualizar_seleccionado_lote()
 
 		if hasattr(self, 'lbl_prev_info'):
-			imp_txt = " (🖨️ Impreso)" if self.imprimir_al_agregar.get() else ""
+			imp_txt = " (🖨️ Impreso)" if impreso_ok else (" (⚠️ Error al imprimir)" if self.imprimir_al_agregar.get() else "")
 			self.lbl_prev_info.config(
 				text=f"✅ Agregado a la lista: [{cod_id}]{imp_txt}", 
-				foreground="#16a34a"
+				foreground="#16a34a" if (not self.imprimir_al_agregar.get() or impreso_ok) else "#dc2626"
 			)
 		return True
 
@@ -725,7 +1078,8 @@ class Window_print(tk.Toplevel):
 			valor=v, 
 			codigo_inicial=codigo,
 			callback_agregar=self.agregar_bien_desde_popup,
-			imprimir_al_agregar_var=self.imprimir_al_agregar
+			imprimir_al_agregar_var=self.imprimir_al_agregar,
+			impresora_var=self.impresora_var
 		)
 
 	def _limpiar_detalle_preview(self):
@@ -786,14 +1140,18 @@ class Window_print(tk.Toplevel):
 		if item_idx < 0 or item_idx >= len(self.lote_items):
 			return
 		item = self.lote_items[item_idx]
+		cod  = _resolver_codigo_impresion(item)
+		acta = item.get("inv", "") or item.get("acta_ant", "") or "1"
+		ofic = self.prev_ofic_etiqueta.get().strip() or item.get("oficina_etiqueta", "")
+		imp_activa = self.impresora_var.get().strip()
+		print(f"[GUI_PRINT][imprimir_seleccionado_lote] Imprimiendo item individual -> cod='{cod}', acta='{acta}', ofic='{ofic}', impresora='{imp_activa}', item={item}")
 		try:
-			cod  = item.get("codpat", "") or item.get("codint", "")
-			acta = item.get("inv", "") or item.get("acta_ant", "") or "1"
-			ofic = self.prev_ofic_etiqueta.get().strip() or item.get("oficina_etiqueta", "")
-			build_label(1, cod, acta, oficina_personalizada=ofic)
+			build_label(1, cod, acta, oficina_personalizada=ofic, bien_data=item, impresora=imp_activa)
 			if hasattr(self, 'lbl_prev_info'):
-				self.lbl_prev_info.config(text=f"🖨️ Etiqueta impresa para: {cod}", foreground="#2563eb")
+				self.lbl_prev_info.config(text=f"🖨️ Etiqueta impresa para: {cod} ({imp_activa})", foreground="#2563eb")
 		except Exception as e:
+			print(f"[GUI_PRINT][ERROR] Error en imprimir_seleccionado_lote para '{cod}': {e}")
+			traceback.print_exc()
 			mb.showerror(title="Error al imprimir", message=f"No se pudo imprimir la etiqueta:\n{e}", parent=self)
 
 	def quitar_seleccionados_lote(self):
@@ -927,9 +1285,13 @@ class Window_print(tk.Toplevel):
 				try:
 					os.startfile(pdf_path)
 				except Exception as err:
+					print(f"[GUI_PRINT][ERROR] Error abriendo visor PDF '{pdf_path}': {err}")
+					traceback.print_exc()
 					mb.showerror(title="Error al abrir", message=f"No se pudo abrir el visor de PDF:\n{err}", parent=self)
 
 		except Exception as e:
+			print(f"[GUI_PRINT][ERROR] Error en generar_pdf_lote: {e}")
+			traceback.print_exc()
 			mb.showerror(title="Error", message=f"Ocurrió un error al generar el lote en PDF:\n{e}", parent=self)
 
 	def imprimir_lote(self):
@@ -937,24 +1299,30 @@ class Window_print(tk.Toplevel):
 			mb.showwarning(title="Atención", message="La lista está vacía. Cargue bienes de una oficina o agregue códigos.", parent=self)
 			return
 
+		imp_activa = self.impresora_var.get().strip()
 		confirm = mb.askyesno(
 			title="Confirmar Impresión en Lote",
-			message=f"Se enviarán {len(self.lote_items)} etiquetas a la impresora predeterminada.\n\n¿Desea continuar con la impresión?",
+			message=f"Se enviarán {len(self.lote_items)} etiquetas a la impresora:\n'{imp_activa or 'Predeterminada'}'\n\n¿Desea continuar con la impresión?",
 			parent=self
 		)
 		if not confirm:
 			return
 
 		ofic_global = self.lote_ofic_personalizada.get().strip()
+		print(f"[GUI_PRINT][imprimir_lote] Enviando lote de {len(self.lote_items)} ítems a imprimir (oficina_global='{ofic_global}', impresora='{imp_activa}')")
 		try:
 			pdf_path = build_label_batch(
 				self.lote_items, 
 				valor=1, 
-				oficina_personalizada_global=ofic_global if ofic_global else None
+				oficina_personalizada_global=ofic_global if ofic_global else None,
+				impresora=imp_activa
 			)
 			if pdf_path:
-				mb.showinfo(title="Impresión enviada", message=f"Se han enviado {len(self.lote_items)} etiquetas a la cola de impresión.", parent=self)
+				print(f"[GUI_PRINT][imprimir_lote] Lote enviado exitosamente: '{pdf_path}'")
+				mb.showinfo(title="Impresión enviada", message=f"Se han enviado {len(self.lote_items)} etiquetas a la cola de impresión ({imp_activa or 'Predeterminada'}).", parent=self)
 		except Exception as e:
+			print(f"[GUI_PRINT][ERROR] Error en imprimir_lote: {e}")
+			traceback.print_exc()
 			mb.showerror(title="Error de impresión", message=f"No se pudo enviar el lote a la impresora:\n{e}", parent=self)
 
 	# -------------------------------------------------------------------------
@@ -987,16 +1355,39 @@ class Window_print(tk.Toplevel):
 			row=2, column=1, sticky="e", pady=(12, 0), padx=(8, 0)
 		)
 
-		ttk.Separator(card_ent, orient="horizontal").grid(row=3, column=0, columnspan=2, sticky="ew", pady=(20, 12))
+		ttk.Separator(card_ent, orient="horizontal").grid(row=3, column=0, columnspan=2, sticky="ew", pady=(14, 10))
+
+		ttk.Label(card_ent, text="Impresora:", font=("Segoe UI", 9)).grid(row=4, column=0, sticky="w", pady=6)
+		frame_imp_ajustes = tk.Frame(card_ent, bg="#ffffff")
+		frame_imp_ajustes.grid(row=4, column=1, sticky="ew", pady=6, padx=(8, 0))
+		frame_imp_ajustes.columnconfigure(0, weight=1)
+
+		self.cbx_impresora_ajustes = ttk.Combobox(
+			frame_imp_ajustes,
+			textvariable=self.impresora_var,
+			state="readonly",
+			width=32
+		)
+		self.cbx_impresora_ajustes.grid(row=0, column=0, sticky="ew")
+		self.cbx_impresora_ajustes.bind("<<ComboboxSelected>>", self._on_impresora_seleccionada)
+
+		ttk.Button(
+			frame_imp_ajustes,
+			text="🔄",
+			width=3,
+			command=self._cargar_impresoras
+		).grid(row=0, column=1, padx=(4, 0))
+
+		ttk.Separator(card_ent, orient="horizontal").grid(row=5, column=0, columnspan=2, sticky="ew", pady=(14, 10))
 
 		ttk.Label(card_ent, text="Diseño y Formato de Etiqueta:", font=("Segoe UI", 9, "bold")).grid(
-			row=4, column=0, columnspan=2, sticky="w", pady=(0, 8)
+			row=6, column=0, columnspan=2, sticky="w", pady=(0, 8)
 		)
 		ttk.Button(
 			card_ent,
 			text="📐 Diseñador de Etiqueta (Editar Posiciones y Tamaños)...",
 			command=self.abrir_disenador_etiqueta
-		).grid(row=5, column=0, columnspan=2, sticky="ew", pady=6)
+		).grid(row=7, column=0, columnspan=2, sticky="ew", pady=6)
 
 		card_ent.columnconfigure(1, weight=1)
 
@@ -1016,11 +1407,40 @@ class Window_print(tk.Toplevel):
 			self.ent.set(str(datos[1]))
 			self.per.set(str(datos[2]))
 
+	def _cargar_impresoras(self):
+		"""Obtiene las impresoras del sistema y sincroniza los comboboxes de lote y ajustes."""
+		try:
+			impresoras, predeterminada = obtener_impresoras_sistema()
+			guardada = obtener_impresora_configurada(self.config_path)
+			seleccion = guardada or predeterminada or (impresoras[0] if impresoras else "")
+			self.impresora_var.set(seleccion)
+
+			valores = impresoras if impresoras else ([seleccion] if seleccion else ["(No se encontraron impresoras)"])
+			if hasattr(self, 'cbx_impresora_lote'):
+				self.cbx_impresora_lote['values'] = valores
+			if hasattr(self, 'cbx_impresora_ajustes'):
+				self.cbx_impresora_ajustes['values'] = valores
+			print(f"[GUI_PRINT] Impresoras cargadas: {valores} | Activa: '{seleccion}'")
+		except Exception as e:
+			print(f"[GUI_PRINT][ERROR] Error al cargar impresoras del sistema: {e}")
+
+	def _on_impresora_seleccionada(self, _event=None):
+		"""Persiste la impresora seleccionada en config.ini y sincroniza ambos comboboxes."""
+		nom = self.impresora_var.get().strip()
+		if nom and nom != "(No se encontraron impresoras)":
+			guardar_impresora_configurada(nom, self.config_path)
+			print(f"[GUI_PRINT] Impresora seleccionada guardada: '{nom}'")
+			if hasattr(self, 'lbl_prev_info'):
+				self.lbl_prev_info.config(text=f"🖨️ Impresora activa: {nom}", foreground="#2563eb")
+
 	def load_config(self):
 		if os.path.exists(self.config_path):
 			self.config.read(self.config_path)
 			if 'Settings' in self.config:
 				self.img_label_path = self.config['Settings'].get('img_label_path', '')
+				imp_cfg = self.config['Settings'].get('printer_name', '').strip()
+				if imp_cfg:
+					self.impresora_var.set(imp_cfg)
 
 	def cargar_imagen_guardada(self):
 		if self.img_label_path and os.path.exists(self.img_label_path):
@@ -1036,6 +1456,9 @@ class Window_print(tk.Toplevel):
 		lista = [self.ent.get(), self.per.get()]
 		try:
 			actualizar_datos(1, lista)
+			nom_imp = self.impresora_var.get().strip()
+			if nom_imp and nom_imp != "(No se encontraron impresoras)":
+				guardar_impresora_configurada(nom_imp, self.config_path)
 			mb.showinfo(title="Acontar S.A.C.", message="¡Ajustes actualizados con éxito!", parent=self)
 		except Exception as e:
 			mb.showerror(title="Error", message=f"Ocurrió un error: {e}", parent=self)
@@ -1073,12 +1496,13 @@ class Window_print(tk.Toplevel):
 # =============================================================================
 class Window_individual_popup(tk.Toplevel):
 	"""Ventana emergente para consultar bien en detalle y agregarlo a la lista de impresión."""
-	def __init__(self, parent, valor=1, codigo_inicial=None, callback_agregar=None, imprimir_al_agregar_var=None):
+	def __init__(self, parent, valor=1, codigo_inicial=None, callback_agregar=None, imprimir_al_agregar_var=None, impresora_var=None):
 		super().__init__(parent)
 		self.parent = parent
 		self.valor = valor or 1
 		self.callback_agregar = callback_agregar
 		self.imprimir_al_agregar_var = imprimir_al_agregar_var
+		self.impresora_var = impresora_var if impresora_var is not None else tk.StringVar(value=obtener_impresora_configurada())
 		self.title("Búsqueda Detallada — Agregar Bien a la Lista")
 		self.geometry("860x550")
 		self.minsize(780, 480)
@@ -1222,11 +1646,23 @@ class Window_individual_popup(tk.Toplevel):
 
 		chkImp = ttk.Checkbutton(
 			frame_acciones, 
-			text="🖨️ Imprimir etiqueta al agregar", 
+			text="🖨️ Imprimir al agregar", 
 			variable=self.imprimir_aqui,
 			command=self._sync_imprimir_var
 		)
-		chkImp.pack(side="left", padx=10, pady=8)
+		chkImp.pack(side="left", padx=(10, 4), pady=8)
+
+		ttk.Label(frame_acciones, text="Impresora:").pack(side="left", padx=(6, 2))
+		impresoras_sys, _ = obtener_impresoras_sistema()
+		cbx_imp_pop = ttk.Combobox(
+			frame_acciones,
+			textvariable=self.impresora_var,
+			values=impresoras_sys or ([self.impresora_var.get()] if self.impresora_var.get() else []),
+			state="readonly",
+			width=22
+		)
+		cbx_imp_pop.pack(side="left", padx=2)
+		cbx_imp_pop.bind("<<ComboboxSelected>>", lambda _e: guardar_impresora_configurada(self.impresora_var.get()))
 
 		btnCerrar = ttk.Button(frame_acciones, text="Cerrar", command=self.destroy)
 		btnCerrar.pack(side="right", padx=5, pady=8)
@@ -1266,6 +1702,7 @@ class Window_individual_popup(tk.Toplevel):
 		try:
 			r = mostrar_datos_print(codigo)
 			if not r:
+				print(f"[GUI_PRINT][Popup.buscar] No se encontraron datos para el código '{codigo}'")
 				mb.showerror(title="No encontrado", message="No se encontraron datos para el código ingresado.", parent=self)
 				return False
 			self.deno.set(r[0] or "")
@@ -1286,6 +1723,8 @@ class Window_individual_popup(tk.Toplevel):
 			self.btnAgregar.focus_set()
 			return True
 		except Exception as e:
+			print(f"[GUI_PRINT][ERROR en Popup.buscar] Código='{codigo}': {e}")
+			traceback.print_exc()
 			mb.showerror(title="Error", message=f"No se pudieron consultar los datos:\n{e}", parent=self)
 			return False
 
@@ -1297,6 +1736,7 @@ class Window_individual_popup(tk.Toplevel):
 		try:
 			r = mostrar_datos_sobrante(codigo)
 			if not r:
+				print(f"[GUI_PRINT][Popup.buscar_sobrante] No se encontraron datos de sobrante para '{codigo}'")
 				mb.showerror(title="Error", message="No se encontraron datos para el código de sobrante.", parent=self)
 				return False
 			self.loca.set(str(r[0]))
@@ -1308,20 +1748,28 @@ class Window_individual_popup(tk.Toplevel):
 			self.btnAgregar.focus_set()
 			return True
 		except Exception as e:
+			print(f"[GUI_PRINT][ERROR en Popup.buscar_sobrante] Código='{codigo}': {e}")
+			traceback.print_exc()
 			mb.showerror(title="Error", message=f"No se pudo consultar el sobrante:\n{e}", parent=self)
 			return False
 
 	def preview_pdf(self):
-		codigo = self.codi.get().strip() or self.codP.get().strip() or self.codI.get().strip()
+		bien_tmp = {
+			"codpat": self.codP.get().strip(),
+			"codint": self.codI.get().strip(),
+			"deno": self.deno.get().strip(),
+		}
+		codigo = _resolver_codigo_impresion(bien_tmp) or self.codi.get().strip()
 		acta = self.acta.get().strip() or "1"
 		if not codigo:
 			return False
 		try:
-			pdf_path = build_label(0, codigo, acta, oficina_personalizada=self.ofic.get().strip())
+			pdf_path = build_label(0, codigo, acta, oficina_personalizada=self.ofic.get().strip(), bien_data=bien_tmp)
 			self._mostrar_pdf(pdf_path)
 			return True
 		except Exception as e:
-			print(f"Error generando preview: {e}")
+			print(f"[GUI_PRINT][ERROR en Popup.preview_pdf] Código='{codigo}': {e}")
+			traceback.print_exc()
 			return False
 
 	def _mostrar_pdf(self, pdf_path):
@@ -1334,7 +1782,8 @@ class Window_individual_popup(tk.Toplevel):
 			self.photo = ImageTk.PhotoImage(pil_img)
 			self.lbl_preview.config(image=self.photo, text="")
 		except Exception as e:
-			print(f"Error mostrando PDF en popup: {e}")
+			print(f"[GUI_PRINT][ERROR mostrando PDF en popup] Ruta='{pdf_path}': {e}")
+			traceback.print_exc()
 
 	def agregar_a_lista(self):
 		codpat = self.codP.get().strip() or self.codi.get().strip()
@@ -1348,13 +1797,6 @@ class Window_individual_popup(tk.Toplevel):
 		ofic_val = self.ofic.get().strip()
 		acta_val = self.acta.get().strip() or "1"
 
-		# Imprimir si el checkbox está activo
-		if self.imprimir_aqui.get():
-			try:
-				build_label(1, codpat or codint, acta_val, oficina_personalizada=ofic_val)
-			except Exception as e:
-				mb.showerror(title="Error al imprimir", message=f"No se pudo imprimir la etiqueta:\n{e}", parent=self)
-
 		bien_dict = {
 			"codpat": codpat,
 			"codint": codint,
@@ -1367,6 +1809,18 @@ class Window_individual_popup(tk.Toplevel):
 			"estado_filtro": "Manual",
 			"oficina_etiqueta": ofic_val
 		}
+
+		# Imprimir si el checkbox está activo
+		if self.imprimir_aqui.get():
+			cod_print = _resolver_codigo_impresion(bien_dict)
+			imp_activa = self.impresora_var.get().strip()
+			print(f"[GUI_PRINT][Popup.agregar_a_lista] Imprimiendo etiqueta -> cod_print='{cod_print}', acta='{acta_val}', oficina='{ofic_val}', impresora='{imp_activa}'")
+			try:
+				build_label(1, cod_print, acta_val, oficina_personalizada=ofic_val, bien_data=bien_dict, impresora=imp_activa)
+			except Exception as e:
+				print(f"[GUI_PRINT][ERROR en Popup.agregar_a_lista] Error al imprimir '{cod_print}': {e}")
+				traceback.print_exc()
+				mb.showerror(title="Error al imprimir", message=f"No se pudo imprimir la etiqueta:\n{e}", parent=self)
 
 		if self.callback_agregar:
 			self.callback_agregar(bien_dict)
