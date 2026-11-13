@@ -1,4 +1,4 @@
-import csv
+﻿import csv
 import json
 import os
 import queue
@@ -65,6 +65,57 @@ from services.local_print_server import LocalPrintServer
 from label.label_no_cat import build_label_nc
 from funciones.scanner_cam import Window_scanner
 from funciones.socket import Window_server
+
+
+class ToolTip:
+    """Muestra un tooltip flotante con información completa al posar el cursor sobre un widget."""
+
+    def __init__(self, widget, text_variable=None, text="", prefix=""):
+        self.widget = widget
+        self.text_variable = text_variable
+        self.text = text
+        self.prefix = prefix
+        self.tip_window = None
+        self.widget.bind("<Enter>", self.show_tip)
+        self.widget.bind("<Leave>", self.hide_tip)
+
+    def show_tip(self, event=None):
+        txt = self.text_variable.get() if self.text_variable else self.text
+        if not txt or not str(txt).strip() or str(txt).strip() in ("-", "—", "SIN UBICACIÓN"):
+            return
+        if self.tip_window:
+            return
+        try:
+            x = self.widget.winfo_rootx() + 10
+            y = self.widget.winfo_rooty() + self.widget.winfo_height() + 4
+            self.tip_window = tw = Toplevel(self.widget)
+            tw.wm_overrideredirect(True)
+            tw.wm_geometry(f"+{x}+{y}")
+            tw.attributes("-topmost", True)
+            lbl = tk.Label(
+                tw,
+                text=f"{self.prefix}{txt}",
+                justify="left",
+                background="#0f172a",
+                foreground="#f8fafc",
+                relief="solid",
+                borderwidth=1,
+                font=("Segoe UI", 9),
+                padx=8,
+                pady=4,
+                wraplength=520
+            )
+            lbl.pack()
+        except Exception:
+            pass
+
+    def hide_tip(self, event=None):
+        if self.tip_window:
+            try:
+                self.tip_window.destroy()
+            except Exception:
+                pass
+            self.tip_window = None
 
 
 class Frame(ttk.Frame):
@@ -497,24 +548,77 @@ class Frame(ttk.Frame):
         etrDen.pack(side='left', fill='x', expand=True)
 
         # Cuadrícula de detalles del bien (frame1_2_2)
+        # Banner informativo de Ubicaciones (Inventario Actual y Anterior) con Tooltips
+        self.banner_ubicaciones = tk.Frame(self.frame1_2, bg="#f8fafc", bd=1, relief="solid")
+        self.banner_ubicaciones.pack(fill="x", pady=(0, 6), padx=1)
+        self.banner_ubicaciones.columnconfigure(1, weight=1)
+
+        # Fila 1: Inventario Actual
+        lbl_inve_tag = tk.Label(
+            self.banner_ubicaciones,
+            text="📍 Inv. Actual:",
+            font=("Segoe UI", 9, "bold"),
+            bg="#f8fafc",
+            fg="#1d4ed8"
+        )
+        lbl_inve_tag.grid(row=0, column=0, padx=(8, 6), pady=(4, 2), sticky="w")
+
+        self.lbl_inve_val = tk.Label(
+            self.banner_ubicaciones,
+            textvariable=self.inve,
+            font=("Segoe UI", 9),
+            bg="#f8fafc",
+            fg="#0f172a",
+            anchor="w",
+            cursor="hand2"
+        )
+        self.lbl_inve_val.grid(row=0, column=1, padx=(0, 8), pady=(4, 2), sticky="ew")
+
+        # Fila 2: Inventario Anterior
+        lbl_acta_tag = tk.Label(
+            self.banner_ubicaciones,
+            text="🕒 Inv. Anterior:",
+            font=("Segoe UI", 9, "bold"),
+            bg="#f8fafc",
+            fg="#475569"
+        )
+        lbl_acta_tag.grid(row=1, column=0, padx=(8, 6), pady=(2, 4), sticky="w")
+
+        self.lbl_acta_val = tk.Label(
+            self.banner_ubicaciones,
+            textvariable=self.acta,
+            font=("Segoe UI", 9),
+            bg="#f8fafc",
+            fg="#334155",
+            anchor="w",
+            cursor="hand2"
+        )
+        self.lbl_acta_val.grid(row=1, column=1, padx=(0, 8), pady=(2, 4), sticky="ew")
+
+        # Vincular Tooltips interactivos con el texto completo
+        ToolTip(self.lbl_inve_val, text_variable=self.inve, prefix="📍 Ubicación / Inventario Actual:\n")
+        ToolTip(lbl_inve_tag, text_variable=self.inve, prefix="📍 Ubicación / Inventario Actual:\n")
+        ToolTip(self.lbl_acta_val, text_variable=self.acta, prefix="🕒 Ubicación / Inventario Anterior:\n")
+        ToolTip(lbl_acta_tag, text_variable=self.acta, prefix="🕒 Ubicación / Inventario Anterior:\n")
+
         self.frame1_2_2 = tk.Frame(self.frame1_2, bg='#ffffff')
         self.frame1_2_2.pack(fill='both', expand=True)
 
         # Columna 0 y 1: Identificación básica
-        ttk.Label(self.frame1_2_2, text="Inventario:").grid(column=0, row=0, padx=(0, 4), pady=2, sticky="w")
-        ttk.Entry(self.frame1_2_2, textvariable=self.inve, state='readonly', width=14).grid(column=1, row=0, padx=(0, 8), pady=2, sticky="ew")
+        # Inventario e Inv. Anterior ahora en banner superior
 
-        ttk.Label(self.frame1_2_2, text="Inv. Anterior:").grid(column=0, row=1, padx=(0, 4), pady=2, sticky="w")
-        ttk.Entry(self.frame1_2_2, textvariable=self.acta, state='readonly', width=14).grid(column=1, row=1, padx=(0, 8), pady=2, sticky="ew")
 
-        ttk.Label(self.frame1_2_2, text="Cód. Patrim.:").grid(column=0, row=2, padx=(0, 4), pady=2, sticky="w")
-        ttk.Entry(self.frame1_2_2, textvariable=self.codp, state='readonly', width=14).grid(column=1, row=2, padx=(0, 8), pady=2, sticky="ew")
 
-        ttk.Label(self.frame1_2_2, text="Marca:").grid(column=0, row=3, padx=(0, 4), pady=2, sticky="w")
-        ttk.Entry(self.frame1_2_2, textvariable=self.marc, width=14).grid(column=1, row=3, padx=(0, 8), pady=2, sticky="ew")
 
-        ttk.Label(self.frame1_2_2, text="Serie:").grid(column=0, row=4, padx=(0, 4), pady=2, sticky="w")
-        ttk.Entry(self.frame1_2_2, textvariable=self.seri, width=14).grid(column=1, row=4, padx=(0, 8), pady=2, sticky="ew")
+
+        ttk.Label(self.frame1_2_2, text="Cód. Patrim.:").grid(column=0, row=0, padx=(0, 4), pady=2, sticky="w")
+        ttk.Entry(self.frame1_2_2, textvariable=self.codp, state='readonly', width=14).grid(column=1, row=0, padx=(0, 8), pady=2, sticky="ew")
+
+        ttk.Label(self.frame1_2_2, text="Marca:").grid(column=0, row=1, padx=(0, 4), pady=2, sticky="w")
+        ttk.Entry(self.frame1_2_2, textvariable=self.marc, width=14).grid(column=1, row=1, padx=(0, 8), pady=2, sticky="ew")
+
+        ttk.Label(self.frame1_2_2, text="Serie:").grid(column=0, row=2, padx=(0, 4), pady=2, sticky="w")
+        ttk.Entry(self.frame1_2_2, textvariable=self.seri, width=14).grid(column=1, row=2, padx=(0, 8), pady=2, sticky="ew")
 
         # Columna 2 y 3: Características
         ttk.Label(self.frame1_2_2, text="Modelo:").grid(column=2, row=0, padx=(0, 4), pady=2, sticky="w")
@@ -526,11 +630,11 @@ class Frame(ttk.Frame):
         ttk.Label(self.frame1_2_2, text="Otros:").grid(column=2, row=2, padx=(0, 4), pady=2, sticky="w")
         ttk.Entry(self.frame1_2_2, textvariable=self.otro, width=14).grid(column=3, row=2, padx=(0, 8), pady=2, sticky="ew")
 
-        ttk.Label(self.frame1_2_2, text="Tipo:").grid(column=2, row=3, padx=(0, 4), pady=2, sticky="w")
-        ttk.Entry(self.frame1_2_2, textvariable=self.tipo, width=14).grid(column=3, row=3, padx=(0, 8), pady=2, sticky="ew")
+        ttk.Label(self.frame1_2_2, text="Tipo:").grid(column=0, row=3, padx=(0, 4), pady=2, sticky="w")
+        ttk.Entry(self.frame1_2_2, textvariable=self.tipo, width=14).grid(column=1, row=3, padx=(0, 8), pady=2, sticky="ew")
 
-        ttk.Label(self.frame1_2_2, text="Situación:").grid(column=2, row=4, padx=(0, 4), pady=2, sticky="w")
-        ttk.Entry(self.frame1_2_2, textvariable=self.situ, width=14).grid(column=3, row=4, padx=(0, 8), pady=2, sticky="ew")
+        ttk.Label(self.frame1_2_2, text="Situación:").grid(column=2, row=3, padx=(0, 4), pady=2, sticky="w")
+        ttk.Entry(self.frame1_2_2, textvariable=self.situ, width=14).grid(column=3, row=3, padx=(0, 8), pady=2, sticky="ew")
 
         # Columna 4 y 5: Estado, Dimensiones y Control Sutil de Fotos
         ttk.Label(self.frame1_2_2, text="Estado:").grid(row=0, column=4, padx=(0, 4), pady=2, sticky="w")
@@ -545,7 +649,7 @@ class Frame(ttk.Frame):
         # Fila 3 y 4 en Columnas 4 y 5: Indicador sutil de Fotos + Acciones rápidas (Ver / + / Eliminar)
         ttk.Label(self.frame1_2_2, text="Fotos:").grid(row=3, column=4, padx=(0, 4), pady=2, sticky="w")
         fotos_sutil_box = tk.Frame(self.frame1_2_2, bg="#ffffff")
-        fotos_sutil_box.grid(row=3, column=5, rowspan=2, padx=(0, 2), pady=2, sticky="ew")
+        fotos_sutil_box.grid(row=3, column=5, padx=(0, 2), pady=2, sticky="ew")
 
         self.lbl_foto_sutil = tk.Label(
             fotos_sutil_box,
@@ -580,12 +684,12 @@ class Frame(ttk.Frame):
         self.btn_del_foto_sutil.pack(side="left")
 
         # Fila 5: Nota y Botón Modificar
-        ttk.Label(self.frame1_2_2, text="Nota:").grid(row=5, column=0, padx=(0, 4), pady=(6, 2), sticky="w")
+        ttk.Label(self.frame1_2_2, text="Nota:").grid(row=4, column=0, padx=(0, 4), pady=(6, 2), sticky="w")
         self.txtNota = tk.Text(self.frame1_2_2, height=2, width=28, font=('Segoe UI', 9), bg='#ffffff', relief='solid', bd=1)
-        self.txtNota.grid(row=5, column=1, columnspan=4, padx=(0, 8), pady=(6, 2), sticky="ew")
+        self.txtNota.grid(row=4, column=1, columnspan=4, padx=(0, 8), pady=(6, 2), sticky="ew")
 
         btnDeta = ttk.Button(self.frame1_2_2, text="💾 Modificar", command=self.actualizar_det, style='Primary.TButton')
-        btnDeta.grid(row=5, column=5, padx=(0, 2), pady=(6, 2), sticky="ew")
+        btnDeta.grid(row=4, column=5, padx=(0, 2), pady=(6, 2), sticky="ew")
 
     def frame_tree(self):
         # Treeview Container

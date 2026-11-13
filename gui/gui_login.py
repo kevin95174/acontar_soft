@@ -3,7 +3,7 @@ import threading
 import tkinter as tk
 import os
 from tkinter import Toplevel, ttk
-from PIL import ImageTk, Image
+from PIL import ImageTk, Image, ImageOps, ImageDraw
 from tkinter import messagebox as mb
 from db.query import login, login_register, login_user
 from gui.gui_app import Frame
@@ -52,15 +52,15 @@ class Frame_login(ttk.Frame):
 		if not self.root:
 			return
 		try:
-			self.root.configure(bg="#f8fafc")
-			w, h = 880, 540
+			self.root.configure(bg="#0f172a")
+			w, h = 960, 580
 			self.root.update_idletasks()
 			sw = self.root.winfo_screenwidth()
 			sh = self.root.winfo_screenheight()
 			x = (sw - w) // 2
 			y = (sh - h) // 2
 			self.root.geometry(f"{w}x{h}+{x}+{y}")
-			self.root.minsize(780, 480)
+			self.root.minsize(860, 520)
 		except Exception:
 			pass
 
@@ -79,141 +79,147 @@ class Frame_login(ttk.Frame):
 		)
 
 	# -------------------------------------------------------------------------
-	# CONSTRUCCIÓN DE INTERFAZ
+	# CONSTRUCCIÓN DE INTERFAZ (OPCIÓN 2: HERO BACKGROUND + FLOATING CARD)
 	# -------------------------------------------------------------------------
 	def _crear_interfaz(self):
-		# Contenedor principal de dos columnas
-		self.FrameU = tk.Frame(self, bg="#f8fafc")
-		self.FrameU.pack(fill="both", expand=True)
+		w_init, h_init = 960, 580
 
-		# =====================================================================
-		# PANEL IZQUIERDO: IMAGEN CORPORATIVA Y BRANDING
-		# =====================================================================
-		self.Frame2 = tk.Frame(self.FrameU, bg="#0f172a", width=420)
-		self.Frame2.pack(side="left", fill="both", expand=True)
-		self.Frame2.pack_propagate(False)
+		# Canvas que ocupa el 100% de la ventana con la foto de fondo
+		self.canvas_bg = tk.Canvas(
+			self,
+			width=w_init,
+			height=h_init,
+			bg="#0f172a",
+			highlightthickness=0,
+			bd=0
+		)
+		self.canvas_bg.pack(fill="both", expand=True)
 
-		# Encabezado corporativo sobre el panel izquierdo
-		f_brand = tk.Frame(self.Frame2, bg="#0f172a", padx=24, pady=20)
-		f_brand.pack(fill="x", side="top")
+		# Renderizado de fondo con la foto y efectos de contraste
+		self._cargar_fondo_canvas(w_init, h_init)
 
-		tk.Label(
-			f_brand,
+		# Branding y propuesta de valor sobre la foto (lado izquierdo)
+		self.txt_tag = self.canvas_bg.create_text(
+			60, 140,
+			text="SISTEMA DE CONTROL PATRIMONIAL",
+			fill="#38bdf8",
+			font=("Segoe UI", 9, "bold"),
+			anchor="w"
+		)
+		self.txt_title = self.canvas_bg.create_text(
+			60, 185,
 			text="ACONTAR S.A.C.",
-			bg="#0f172a",
-			fg="#ffffff",
-			font=("Segoe UI", 15, "bold"),
+			fill="#ffffff",
+			font=("Segoe UI", 26, "bold"),
 			anchor="w"
-		).pack(fill="x")
-
-		tk.Label(
-			f_brand,
-			text="Especialistas en Gestión y Control Patrimonial",
-			bg="#0f172a",
-			fg="#94a3b8",
-			font=("Segoe UI", 9),
+		)
+		self.txt_desc = self.canvas_bg.create_text(
+			60, 235,
+			text="Especialistas en Gestión, Inventario Físico\ny Conciliación Patrimonial de Activos.",
+			fill="#e2e8f0",
+			font=("Segoe UI", 12),
 			anchor="w"
-		).pack(fill="x", pady=(2, 0))
-
-		# Imagen de fondo/ilustración cargada de forma segura
-		f_img_left = tk.Frame(self.Frame2, bg="#0f172a", padx=20, pady=10)
-		f_img_left.pack(fill="both", expand=True)
-
-		try:
-			bkg_path = resource_path(os.path.join("img", "login_.jpg"))
-			self.bkg = Image.open(bkg_path)
-			self.resize_bkg = self.bkg.resize((380, 340), Image.Resampling.LANCZOS)
-			self.img_bkg = ImageTk.PhotoImage(self.resize_bkg)
-			self.lblbkg = tk.Label(f_img_left, image=self.img_bkg, bg="#0f172a", bd=0)
-			self.lblbkg.pack(expand=True)
-		except Exception:
-			tk.Label(
-				f_img_left,
-				text="📦\nSistema de Inventario Físico",
-				bg="#0f172a",
-				fg="#cbd5e1",
-				font=("Segoe UI", 14, "bold"),
-				justify="center"
-			).pack(expand=True)
-
-		tk.Label(
-			self.Frame2,
-			text="© Acontar Especialistas Contables S.A.C.",
-			bg="#0f172a",
-			fg="#64748b",
+		)
+		self.txt_feat1 = self.canvas_bg.create_text(
+			60, 305,
+			text="⚡  Toma de inventario rápida y sin errores",
+			fill="#cbd5e1",
+			font=("Segoe UI", 10),
+			anchor="w"
+		)
+		self.txt_feat2 = self.canvas_bg.create_text(
+			60, 340,
+			text="🔄  Sincronización híbrida (Online / Offline)",
+			fill="#cbd5e1",
+			font=("Segoe UI", 10),
+			anchor="w"
+		)
+		self.txt_feat3 = self.canvas_bg.create_text(
+			60, 375,
+			text="🏷️  Impresión y control de etiquetas de activos",
+			fill="#cbd5e1",
+			font=("Segoe UI", 10),
+			anchor="w"
+		)
+		self.txt_copy = self.canvas_bg.create_text(
+			60, 535,
+			text="© Acontar Especialistas Contables S.A.C. Todos los derechos reservados.",
+			fill="#94a3b8",
 			font=("Segoe UI", 8),
-			pady=12
-		).pack(side="bottom")
+			anchor="w"
+		)
 
 		# =====================================================================
-		# PANEL DERECHO: TARJETA DE INICIO DE SESIÓN
+		# TARJETA BLANCA FLOTANTE (LADO DERECHO)
 		# =====================================================================
-		self.Frame1 = tk.Frame(self.FrameU, bg="#ffffff", width=440, padx=42, pady=28)
-		self.Frame1.pack(side="right", fill="both", expand=True)
+		card_w, card_h = 380, 500
+		self.card = tk.Frame(
+			self.canvas_bg,
+			bg="#ffffff",
+			padx=32,
+			pady=24,
+			highlightbackground="#cbd5e1",
+			highlightthickness=1,
+			bd=0
+		)
 
-		# Contenedor centrado verticalmente
-		card_inner = tk.Frame(self.Frame1, bg="#ffffff")
-		card_inner.pack(fill="x", expand=True)
-
-		# Avatar / Icono de usuario
-		self.Frame1_1 = tk.Frame(card_inner, bg="#ffffff")
-		self.Frame1_1.pack(fill="x", pady=(0, 10))
+		# Encabezado con avatar
+		f_card_top = tk.Frame(self.card, bg="#ffffff")
+		f_card_top.pack(fill="x", pady=(0, 8))
 
 		try:
 			img_user_path = resource_path(os.path.join("img", "user.png"))
 			self.image = Image.open(img_user_path)
-			self.resize_img = self.image.resize((84, 84), Image.Resampling.LANCZOS)
+			self.resize_img = self.image.resize((66, 66), Image.Resampling.LANCZOS)
 			self.img = ImageTk.PhotoImage(self.resize_img)
-			self.lblImg = tk.Label(self.Frame1_1, image=self.img, bg="#ffffff")
+			self.lblImg = tk.Label(f_card_top, image=self.img, bg="#ffffff")
 			self.lblImg.pack(anchor="center")
 		except Exception:
 			tk.Label(
-				self.Frame1_1,
+				f_card_top,
 				text="👤",
 				bg="#eff6ff",
 				fg="#2563eb",
-				font=("Segoe UI", 28),
-				padx=16,
-				pady=6
+				font=("Segoe UI", 24),
+				padx=14,
+				pady=4
 			).pack(anchor="center")
 
 		tk.Label(
-			self.Frame1_1,
+			f_card_top,
 			text="Iniciar Sesión",
 			bg="#ffffff",
 			fg="#0f172a",
-			font=("Segoe UI", 16, "bold")
-		).pack(anchor="center", pady=(8, 2))
+			font=("Segoe UI", 15, "bold")
+		).pack(anchor="center", pady=(6, 2))
 
 		tk.Label(
-			self.Frame1_1,
+			f_card_top,
 			text="Ingrese sus credenciales para continuar",
 			bg="#ffffff",
 			fg="#64748b",
 			font=("Segoe UI", 9)
-		).pack(anchor="center", pady=(0, 12))
+		).pack(anchor="center", pady=(0, 6))
 
-		# Formulario de campos
-		self.Frame1_2 = tk.Frame(card_inner, bg="#ffffff")
-		self.Frame1_2.pack(fill="x")
+		# Campos del formulario
+		f_card_body = tk.Frame(self.card, bg="#ffffff")
+		f_card_body.pack(fill="x")
 
-		# Campo Usuario
 		tk.Label(
-			self.Frame1_2,
+			f_card_body,
 			text="Usuario",
 			bg="#ffffff",
 			fg="#334155",
 			font=("Segoe UI", 9, "bold"),
 			anchor="w"
-		).pack(fill="x", pady=(4, 3))
+		).pack(fill="x", pady=(3, 3))
 
-		self.etrUser = ttk.Entry(self.Frame1_2, textvariable=self.user, font=("Segoe UI", 10))
-		self.etrUser.pack(fill="x", ipady=4, pady=(0, 10))
+		self.etrUser = ttk.Entry(f_card_body, textvariable=self.user, font=("Segoe UI", 10))
+		self.etrUser.pack(fill="x", ipady=4, pady=(0, 8))
 		self.etrUser.bind("<Return>", lambda _e: self.etrPass.focus_set())
 
-		# Campo Contraseña
 		tk.Label(
-			self.Frame1_2,
+			f_card_body,
 			text="Contraseña",
 			bg="#ffffff",
 			fg="#334155",
@@ -221,22 +227,20 @@ class Frame_login(ttk.Frame):
 			anchor="w"
 		).pack(fill="x", pady=(2, 3))
 
-		self.etrPass = ttk.Entry(self.Frame1_2, textvariable=self.passw, show="●", font=("Segoe UI", 10))
-		self.etrPass.pack(fill="x", ipady=4, pady=(0, 6))
+		self.etrPass = ttk.Entry(f_card_body, textvariable=self.passw, show="●", font=("Segoe UI", 10))
+		self.etrPass.pack(fill="x", ipady=4, pady=(0, 5))
 		self.etrPass.bind("<Return>", lambda _e: self.validar_ingreso())
 
-		# Checkbox Mostrar contraseña
 		chk_pass = ttk.Checkbutton(
-			self.Frame1_2,
+			f_card_body,
 			text="Mostrar contraseña",
 			variable=self.mostrar_pass,
 			command=self._toggle_password
 		)
-		chk_pass.pack(anchor="w", pady=(0, 14))
+		chk_pass.pack(anchor="w", pady=(0, 10))
 
-		# Botón Primario: Entrar
 		self.btnEtr = tk.Button(
-			self.Frame1_2,
+			f_card_body,
 			text="🔐  Ingresar al Sistema",
 			bg="#2563eb",
 			activebackground="#1d4ed8",
@@ -245,19 +249,18 @@ class Frame_login(ttk.Frame):
 			font=("Segoe UI", 10, "bold"),
 			relief="flat",
 			bd=0,
-			pady=9,
+			pady=8,
 			cursor="hand2",
 			command=self.validar_ingreso
 		)
 		self.btnEtr.pack(fill="x", pady=(0, 8))
 
-		# Fila de botones secundarios: Registrar y Sincronizar
-		f_sec_btns = tk.Frame(self.Frame1_2, bg="#ffffff")
+		f_sec_btns = tk.Frame(f_card_body, bg="#ffffff")
 		f_sec_btns.pack(fill="x", pady=(2, 0))
 
 		self.btnReg = tk.Button(
 			f_sec_btns,
-			text="➕ Registrar Usuario",
+			text="➕ Registrar",
 			bg="#f1f5f9",
 			activebackground="#e2e8f0",
 			fg="#334155",
@@ -273,7 +276,7 @@ class Frame_login(ttk.Frame):
 
 		self.btnSync = tk.Button(
 			f_sec_btns,
-			text="🔄 Sincronizar Servidor",
+			text="🔄 Sincronizar",
 			bg="#1e293b",
 			activebackground="#0f172a",
 			fg="#ffffff",
@@ -287,19 +290,65 @@ class Frame_login(ttk.Frame):
 		)
 		self.btnSync.pack(side="right", fill="x", expand=True, padx=(4, 0))
 
-		# Etiqueta de estado para sincronización automática en el primer login
 		self.lblSyncStatus = tk.Label(
-			self.Frame1_2,
+			f_card_body,
 			textvariable=self.sync_status_var,
 			bg="#ffffff",
 			fg="#2563eb",
 			font=("Segoe UI", 9, "bold"),
-			wraplength=350,
+			wraplength=310,
 			justify="center"
 		)
-		self.lblSyncStatus.pack(fill="x", pady=(10, 0))
+		self.lblSyncStatus.pack(fill="x", pady=(8, 0))
+
+		# Incrustar la tarjeta flotante sobre el canvas
+		card_x = w_init - card_w - 50
+		card_y = (h_init - card_h) // 2
+		self.card_window = self.canvas_bg.create_window(card_x, card_y, window=self.card, anchor="nw")
+
+		# Manejador dinámico de reposicionamiento
+		self.canvas_bg.bind("<Configure>", self._al_redimensionar_canvas)
 
 		self.etrUser.focus_set()
+
+	def _cargar_fondo_canvas(self, w: int, h: int):
+		"""Carga la foto como fondo panorámico ocupando toda la ventana con efectos de contraste."""
+		try:
+			bkg_path = resource_path(os.path.join("img", "login_.jpg"))
+			if not os.path.exists(bkg_path):
+				bkg_path = resource_path(os.path.join("img", "login__.jpg"))
+
+			if os.path.exists(bkg_path):
+				raw_img = Image.open(bkg_path).convert("RGBA")
+				fitted = ImageOps.fit(raw_img, (w, h), method=Image.Resampling.LANCZOS)
+
+				scrim = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+				draw = ImageDraw.Draw(scrim)
+
+				# Degradado horizontal: zona izquierda oscurecida para texto, zona derecha visible
+				for x in range(w):
+					if x < 520:
+						alpha = int(210 - (135 * (x / 520)))
+					else:
+						alpha = 75
+					draw.line([(x, 0), (x, h)], fill=(15, 23, 42, alpha))
+
+				composited = Image.alpha_composite(fitted, scrim).convert("RGB")
+				self.img_bkg = ImageTk.PhotoImage(composited)
+				self.canvas_bg.create_image(0, 0, image=self.img_bkg, anchor="nw")
+		except Exception as ex:
+			print(f"Nota: No se pudo cargar el fondo panorámico: {ex}")
+
+	def _al_redimensionar_canvas(self, event):
+		if not self.winfo_exists() or not hasattr(self, "card_window"):
+			return
+		w, h = event.width, event.height
+		card_w = 380
+		card_x = max(w - card_w - 50, w // 2)
+		card_y = max((h - 500) // 2, 25)
+		self.canvas_bg.coords(self.card_window, card_x, card_y)
+		if hasattr(self, "txt_copy"):
+			self.canvas_bg.coords(self.txt_copy, 60, h - 30)
 
 	def _toggle_password(self):
 		self.etrPass.config(show="" if self.mostrar_pass.get() else "●")

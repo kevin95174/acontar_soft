@@ -147,7 +147,7 @@ class Window_estadisticas(tk.Toplevel):
     def _configurar_estilos(self):
         s = ttk.Style()
         try:
-            s.theme_use("clam")
+            pass  # No cambiar theme_use para preservar el tema global de la app principal
         except Exception:
             pass
 

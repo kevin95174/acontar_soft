@@ -10,6 +10,8 @@ from data.exp_excel import exportar_excel
 from gui.gui_detalles import Window_detalles
 from utils.order_utils import sort_by
 from utils.helpers import resource_path
+from utils.report_template_manager import ReportTemplateManager
+from gui.gui_report_designer import Window_report_designer
 
 
 class Window_reporte(tk.Toplevel):
@@ -234,6 +236,13 @@ class Window_reporte(tk.Toplevel):
         if self.iconoxls:
             btnCsv.config(image=self.iconoxls, compound="left")
         btnCsv.pack(side="right", padx=4, pady=4)
+
+        btnPersonalizar = ttk.Button(
+            self.Frame1,
+            text=" ⚙️ Personalizar",
+            command=self.abrir_personalizador
+        )
+        btnPersonalizar.pack(side="right", padx=4, pady=4)
 
         # 3. Card de Tabla (Treeview)
         self.Frame2 = ttk.LabelFrame(
@@ -552,27 +561,33 @@ class Window_reporte(tk.Toplevel):
             return
 
         try:
-            if self.valor in [1, 7]:
-                for item in datos:
-                    marca = 'MARCA: ' + item[4] if item[4] else ''
-                    modelo = 'MODELO: ' + item[5] if item[5] else ''
-                    serie = 'SERIE: ' + item[6] if item[6] else ''
-                    color = 'COLOR: ' + item[7] if item[7] else ''
-                    tipo = 'TIPO: ' + item[8] if item[8] else ''
-                    dimension = 'DIMENSIÓN: ' + item[9] if item[9] else ''
+            template = ReportTemplateManager.get_template(self.valor)
+            titulo_rep = template.get('titulo', self.arc)
+            subtitulo_rep = template.get('subtitulo', '')
+            entidad_rep = template.get('entidad', '')
+            logo_rep = template.get('logo_path', '')
+            mostrar_logo_rep = template.get('mostrar_logo', True)
 
-                    detalles_tecnicos = ' - '.join(filter(None, [marca, modelo, serie, color, tipo, dimension]))
-                    datos_pdf.append((item[0], item[1], item[2], item[3], detalles_tecnicos, item[10], item[11]))
-
-                lista = ['Nro', 'Código\nInterno', 'Código\nPatrimonial', 'Denominación', 'Detalles tecnicos', 'Estado', 'Ubicación']
-                colwidths = [25, 33, 60, 170, 200, 25, 200]
-                iniciar_reporte(self.arc, lista, datos_pdf, colwidths, file_path)
-            elif self.valor == 10:
-                iniciar_conciliacion(self.arc, self.lista, datos, self.colwidths, file_path)
+            if self.valor == 10:
+                iniciar_conciliacion(titulo_rep, self.lista, datos, self.colwidths, file_path)
             elif self.valor > 11:
-                iniciar_reporte_contable(self.arc, self.lista, datos, self.colwidths, file_path)
+                iniciar_reporte_contable(titulo_rep, self.lista, datos, self.colwidths, file_path)
             else:
-                iniciar_reporte(self.arc, self.lista, datos, self.colwidths, file_path)
+                lista, datos_pdf, colwidths, cols_meta = ReportTemplateManager.preparar_datos_para_pdf(
+                    self.valor, datos, template=template, incluir_metadata=True
+                )
+                iniciar_reporte(
+                    reporte=titulo_rep,
+                    encabezados=lista,
+                    datos=datos_pdf,
+                    colWidths=colwidths,
+                    direccion=file_path,
+                    subtitulo=subtitulo_rep,
+                    entidad=entidad_rep,
+                    logo_path=logo_rep,
+                    mostrar_logo=mostrar_logo_rep,
+                    cols_metadata=cols_meta
+                )
 
             mb.showinfo(title="Acontar S.A.C.", message="Reporte PDF generado con éxito.", parent=self)
             self.focus_set()
@@ -580,6 +595,19 @@ class Window_reporte(tk.Toplevel):
             mb.showerror(title="Error", message=f"Error al exportar PDF:\n{e}", parent=self)
             print(e)
             self.focus_set()
+
+    def abrir_personalizador(self):
+        """Abre la ventana modal para personalizar la estructura del reporte."""
+        Window_report_designer(self, self.valor, on_save_callback=self._al_guardar_personalizacion)
+
+    def _al_guardar_personalizacion(self, nueva_plantilla):
+        """Callback al guardar la personalización para refrescar títulos y vista."""
+        if nueva_plantilla.get("titulo"):
+            self.arc = nueva_plantilla["titulo"]
+            self.lblTit.config(text=f"📋  {self.arc}")
+            self.title(f"{self.arc.title()} - AcontarSoft")
+        if nueva_plantilla.get("subtitulo"):
+            self.lblSub.config(text=nueva_plantilla["subtitulo"])
 
     def abrir_detalle_bien(self, _event=None):
         """Abre la ficha detallada del bien al hacer doble clic (en reportes de bienes individuales)."""

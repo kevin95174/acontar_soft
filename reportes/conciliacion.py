@@ -4,10 +4,11 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.platypus import SimpleDocTemplate, Table, Paragraph
 from reportlab.lib.styles import ParagraphStyle
 from utils.pdf_utils import PageNumCanvas
+from db.query import datos_iniciales
 
 def iniciar_conciliacion(reporte, encabezados, datos, colWidths, direccion):
 
-    pdf_name = str(reporte)+".pdf"
+    pdf_name = str(reporte) + ".pdf"
     pathpdf = os.path.join(direccion, pdf_name)
 
     doc = SimpleDocTemplate(pathpdf, pagesize=landscape(A4),
@@ -16,11 +17,17 @@ def iniciar_conciliacion(reporte, encabezados, datos, colWidths, direccion):
     
     elements = []
 
-    # Titulo 1        
-    h1 = ParagraphStyle(name='Heading2', fontSize=12, alignment=1, fontName = 'HELVETICA-BOLD')
-    titulo1 = [[Paragraph(str(reporte),h1)]]
-    titulo2 = [[Paragraph(str("Inventario patrimonial al 31-12-2024"),h1)]]
-    titulo3 = [[Paragraph(str("Oficina Regional Sur Arequipa"),h1)]]
+    # Obtener entidad y fecha dinámicamente de la BD / config.ini
+    datos_ini = datos_iniciales()
+    entidad = str(datos_ini[1]) if (datos_ini and len(datos_ini) > 1 and datos_ini[1]) else "ENTIDAD"
+    fecha_inv = str(datos_ini[3]) if (datos_ini and len(datos_ini) > 3 and datos_ini[3]) else (str(datos_ini[2]) if (datos_ini and len(datos_ini) > 2 and datos_ini[2]) else "")
+    texto_inventario = f"Inventario patrimonial al {fecha_inv}" if fecha_inv else "Inventario patrimonial"
+
+    # Titulos
+    h1 = ParagraphStyle(name='Heading2', fontSize=12, alignment=1, fontName='HELVETICA-BOLD')
+    titulo1 = [[Paragraph(str(reporte), h1)]]
+    titulo2 = [[Paragraph(str(texto_inventario), h1)]]
+    titulo3 = [[Paragraph(str(entidad), h1)]]
 
     c1 = ParagraphStyle(name='Normal', fontSize=7, leading=8, alignment=0)
     c2 = ParagraphStyle(name='Normal', fontSize=7, leading=8, alignment=2)
@@ -78,7 +85,7 @@ def iniciar_conciliacion(reporte, encabezados, datos, colWidths, direccion):
                         ('ALIGN', (0, len(tabla)-1), (2, len(tabla)-1), 'CENTER')
                         ]
 
-    t=Table(tabla, colWidths, rowHeights=rowHeights, repeatRows =4, style=estilos_comunes)
+    t = Table(tabla, colWidths, rowHeights=rowHeights, repeatRows=4, style=estilos_comunes)
     
     elements.append(t)
 
