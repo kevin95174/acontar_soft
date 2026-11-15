@@ -12,6 +12,9 @@ from utils.api_client import ApiManagerAcontarSacClient
 from utils.config_helper import set_config
 from gui.gui_connection_test import Window_connection_test
 from utils.helpers import resource_path
+from utils.project_manager import ProjectManager
+from db.conex import set_database_path
+from db.init_db import init_db
 
 
 class Frame_login(ttk.Frame):
@@ -42,6 +45,12 @@ class Frame_login(ttk.Frame):
 		self.passw = tk.StringVar()
 		self.mostrar_pass = tk.BooleanVar(value=False)
 		self.sync_status_var = tk.StringVar(value="")
+
+		# Configuración multi-proyecto
+		self.proyectos_dict = ProjectManager.load_projects()
+		active_id = ProjectManager.get_active_project_id()
+		nombre_activo = self.proyectos_dict.get(active_id, {}).get("name", "Proyecto 1 (api.acontarsac.com)")
+		self.proyecto_activo_var = tk.StringVar(value=nombre_activo)
 
 		self._crear_interfaz()
 
@@ -152,12 +161,12 @@ class Frame_login(ttk.Frame):
 		# =====================================================================
 		# TARJETA BLANCA FLOTANTE (LADO DERECHO)
 		# =====================================================================
-		card_w, card_h = 380, 500
+		card_w, card_h = 380, 520
 		self.card = tk.Frame(
 			self.canvas_bg,
 			bg="#ffffff",
 			padx=32,
-			pady=24,
+			pady=22,
 			highlightbackground="#cbd5e1",
 			highlightthickness=1,
 			bd=0
@@ -165,12 +174,12 @@ class Frame_login(ttk.Frame):
 
 		# Encabezado con avatar
 		f_card_top = tk.Frame(self.card, bg="#ffffff")
-		f_card_top.pack(fill="x", pady=(0, 8))
+		f_card_top.pack(fill="x", pady=(0, 6))
 
 		try:
 			img_user_path = resource_path(os.path.join("img", "user.png"))
 			self.image = Image.open(img_user_path)
-			self.resize_img = self.image.resize((66, 66), Image.Resampling.LANCZOS)
+			self.resize_img = self.image.resize((60, 60), Image.Resampling.LANCZOS)
 			self.img = ImageTk.PhotoImage(self.resize_img)
 			self.lblImg = tk.Label(f_card_top, image=self.img, bg="#ffffff")
 			self.lblImg.pack(anchor="center")
@@ -180,9 +189,9 @@ class Frame_login(ttk.Frame):
 				text="👤",
 				bg="#eff6ff",
 				fg="#2563eb",
-				font=("Segoe UI", 24),
-				padx=14,
-				pady=4
+				font=("Segoe UI", 22),
+				padx=12,
+				pady=2
 			).pack(anchor="center")
 
 		tk.Label(
@@ -191,7 +200,7 @@ class Frame_login(ttk.Frame):
 			bg="#ffffff",
 			fg="#0f172a",
 			font=("Segoe UI", 15, "bold")
-		).pack(anchor="center", pady=(6, 2))
+		).pack(anchor="center", pady=(4, 1))
 
 		tk.Label(
 			f_card_top,
@@ -199,11 +208,47 @@ class Frame_login(ttk.Frame):
 			bg="#ffffff",
 			fg="#64748b",
 			font=("Segoe UI", 9)
-		).pack(anchor="center", pady=(0, 6))
+		).pack(anchor="center", pady=(0, 4))
 
 		# Campos del formulario
 		f_card_body = tk.Frame(self.card, bg="#ffffff")
 		f_card_body.pack(fill="x")
+
+		# Selector de Proyecto / Servidor
+		f_sel_proj = tk.Frame(f_card_body, bg="#ffffff")
+		f_sel_proj.pack(fill="x", pady=(0, 5))
+
+		tk.Label(
+			f_sel_proj,
+			text="Proyecto / Servidor:",
+			bg="#ffffff",
+			fg="#334155",
+			font=("Segoe UI", 8, "bold"),
+			anchor="w"
+		).pack(fill="x", pady=(0, 2))
+
+		proj_names = [p["name"] for p in self.proyectos_dict.values()]
+		self.cb_proyecto = ttk.Combobox(
+			f_sel_proj,
+			textvariable=self.proyecto_activo_var,
+			values=proj_names,
+			state="readonly",
+			font=("Segoe UI", 9)
+		)
+		self.cb_proyecto.pack(fill="x", ipady=2)
+		self.cb_proyecto.bind("<<ComboboxSelected>>", self._al_cambiar_proyecto)
+
+		# Etiqueta que muestra en pantalla la BD local activa
+		db_actual_nombre = os.path.basename(self.db_path or ProjectManager.get_active_db_path())
+		self.lbl_info_db = tk.Label(
+			f_sel_proj,
+			text=f"📁 Base local: db/{db_actual_nombre}",
+			bg="#ffffff",
+			fg="#2563eb",
+			font=("Segoe UI", 8, "bold"),
+			anchor="w"
+		)
+		self.lbl_info_db.pack(fill="x", pady=(3, 0))
 
 		tk.Label(
 			f_card_body,
@@ -212,7 +257,7 @@ class Frame_login(ttk.Frame):
 			fg="#334155",
 			font=("Segoe UI", 9, "bold"),
 			anchor="w"
-		).pack(fill="x", pady=(3, 3))
+		).pack(fill="x", pady=(2, 2))
 
 		self.etrUser = ttk.Entry(f_card_body, textvariable=self.user, font=("Segoe UI", 10))
 		self.etrUser.pack(fill="x", ipady=4, pady=(0, 8))
@@ -345,10 +390,64 @@ class Frame_login(ttk.Frame):
 		w, h = event.width, event.height
 		card_w = 380
 		card_x = max(w - card_w - 50, w // 2)
-		card_y = max((h - 500) // 2, 25)
+		card_y = max((h - 520) // 2, 20)
 		self.canvas_bg.coords(self.card_window, card_x, card_y)
 		if hasattr(self, "txt_copy"):
 			self.canvas_bg.coords(self.txt_copy, 60, h - 30)
+
+	def _al_cambiar_proyecto(self, _event=None):
+		nombre_sel = self.proyecto_activo_var.get()
+		target_proj = None
+		for p in self.proyectos_dict.values():
+			if p["name"] == nombre_sel:
+				target_proj = p
+				break
+
+		if not target_proj:
+			return
+
+		# 1. Guardar proyecto activo en config.ini
+		ProjectManager.set_active_project(target_proj["id"])
+
+		# 2. Actualizar ruta de base de datos activa
+		nueva_db = ProjectManager.get_active_db_path()
+		self.db_path = nueva_db
+		if self.root:
+			self.root.db_path = nueva_db
+		set_database_path(nueva_db)
+
+		# 3. Inicializar esquema en la BD si no existe aún
+		try:
+			conn = sqlite3.connect(nueva_db)
+			init_db(conn)
+			sync_service = SyncService(conn)
+			self.sync_realizado = sync_service.is_initial_sync_done()
+			conn.close()
+		except Exception as ex_db:
+			print(f"Nota al inicializar BD de proyecto: {ex_db}")
+			self.sync_realizado = False
+
+		# 4. Actualizar cliente API con la nueva URL del proyecto
+		self.api_client = ApiManagerAcontarSacClient(
+			base_url=target_proj["api_url"],
+			photos_base_url=target_proj.get("photos_url")
+		)
+		if self.root:
+			self.root.api_client = self.api_client
+
+		# 5. Notificar estado al usuario y actualizar etiqueta de BD local
+		db_nombre = os.path.basename(nueva_db)
+		if hasattr(self, 'lbl_info_db'):
+			self.lbl_info_db.config(text=f"📁 Base local: db/{db_nombre}")
+
+		if not self.sync_realizado:
+			self.sync_status_var.set(f"🔄 Conectado a {target_proj['name']}.\nPrimer uso: se descargará la base de datos.")
+		else:
+			self.sync_status_var.set(f"✓ Conectado a: {target_proj['name']}")
+
+		self.user.set("")
+		self.passw.set("")
+		self.etrUser.focus_set()
 
 	def _toggle_password(self):
 		self.etrPass.config(show="" if self.mostrar_pass.get() else "●")
@@ -376,7 +475,7 @@ class Frame_login(ttk.Frame):
 		self.btnEtr.configure(text="⏳ Sincronizando base de datos...")
 		self.sync_status_var.set("🔄 Primer inicio de sesión: descargando datos del servidor (Initial Sync)...")
 
-		db_path = getattr(self.root, "db_path", self.db_path or "db/orap2022.db")
+		db_path = getattr(self.root, "db_path", None) or self.db_path or ProjectManager.get_active_db_path()
 
 		def _worker():
 			try:
@@ -406,13 +505,15 @@ class Frame_login(ttk.Frame):
 			)
 
 		self.pack_forget()
+		active_db = getattr(self.root, "db_path", None) or self.db_path or ProjectManager.get_active_db_path()
 		Frame(
 			root=self.root,
 			user=name,
 			Ndni=Ndni,
 			team=team,
 			api_client=api_client,
-			user_id=user_id
+			user_id=user_id,
+			db_path=active_db
 		)
 
 	def validar_ingreso(self):
@@ -432,7 +533,7 @@ class Frame_login(ttk.Frame):
 					res_api = api_client.validate_credentials(u, p)
 					if res_api and res_api.get("success"):
 						user_data = res_api.get("data", {})
-						db_path = getattr(self.root, "db_path", self.db_path or "db/orap2022.db")
+						db_path = getattr(self.root, "db_path", None) or self.db_path or ProjectManager.get_active_db_path()
 						conn = sqlite3.connect(db_path)
 						cur = conn.cursor()
 						cur.execute("""
@@ -466,7 +567,7 @@ class Frame_login(ttk.Frame):
 				api_client = getattr(self, 'api_client', None) or getattr(self.root, 'api_client', None)
 
 				# 2. Obtener la ruta de la BD registrada en root
-				db_path = getattr(self.root, "db_path", self.db_path or "db/orap2022.db")
+				db_path = getattr(self.root, "db_path", None) or self.db_path or ProjectManager.get_active_db_path()
 				db_conn = sqlite3.connect(db_path)
 
 				# 3. Persistir usuario activo en app_config
@@ -491,7 +592,8 @@ class Frame_login(ttk.Frame):
 						Ndni=Ndni,
 						team=team,
 						api_client=api_client,
-						user_id=user_id
+						user_id=user_id,
+						db_path=db_path
 					)
 			else:
 				mb.showwarning(message="Usuario o contraseña incorrectos.", title="Atención", parent=self.root)

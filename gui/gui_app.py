@@ -1,4 +1,4 @@
-﻿import csv
+import csv
 import json
 import os
 import queue
@@ -9,6 +9,9 @@ import tkinter as tk
 import qrcode
 import urllib.request
 from utils.api_client import ApiManagerAcontarSacClient
+from utils.project_manager import ProjectManager
+from utils.config_helper import get_config
+from db.conex import set_database_path, get_database_path
 from tkinter import ttk, Menu, PhotoImage, Toplevel, filedialog
 from PIL import Image, ImageTk
 from tkinter import messagebox as mb
@@ -42,6 +45,7 @@ from datetime import datetime, date
 from services.sync_service import SyncService
 from utils.order_utils import sort_by
 from utils.helpers import resource_path
+from utils.export_utils import solicitar_ruta_guardado, abrir_archivo_generado, generar_nombre_estandar
 from reportes.ficha import iniciar_reporte
 from gui.gui_sobrante import Window_surplus
 from gui.gui_config import Window_config
@@ -120,15 +124,34 @@ class ToolTip:
 
 class Frame(ttk.Frame):
     
-    def __init__(self, root=None, user=None, Ndni=None, team=None, api_client=None, user_id=1):
+    def __init__(self, root=None, user=None, Ndni=None, team=None, api_client=None, user_id=1, db_path=None):
         super().__init__(root)
         self.root = root
         self.user = user
         self.Ndni = Ndni
         self.team = team
         
-        # Guardar la instancia de ApiClient y el ID de usuario
+        # 1. Resolver y registrar la base de datos local activa
+        self.db_path = db_path or getattr(root, 'db_path', None) or ProjectManager.get_active_db_path()
+        set_database_path(self.db_path)
+        if self.root:
+            self.root.db_path = self.db_path
+
+        # 2. Guardar la instancia de ApiClient y el ID de usuario
         self.api_client = api_client or getattr(root, 'api_client', None) or ApiManagerAcontarSacClient()
+        if self.root:
+            self.root.api_client = self.api_client
+
+        # 3. Actualizar el título de la ventana para reflejar el proyecto y la BD activa
+        try:
+            active_proj = ProjectManager.get_active_project()
+            db_name = os.path.basename(self.db_path)
+            proj_name = active_proj.get('name', 'Proyecto')
+            if self.root:
+                self.root.title(f"AcontarSoft — [{proj_name}] (BD: {db_name}) — Usuario: {self.user or 'Inventariador'}")
+        except Exception:
+            pass
+
         self.user_id = user_id
         # Evita que varios registros inicien sincronizaciones simultáneas.
         self._sync_outbox_lock = threading.Lock()
@@ -1557,26 +1580,65 @@ class Frame(ttk.Frame):
             self._poblar_tree_con_filtro_fotos(r)
 
     def exportar_inv(self):
-        if self.valor.get() == "":
-            mb.showerror(message="Ingrese un número de acta", title="¡Atención!")
-        else:
-            try:
-                r = mostrar_inventario(self.valor.get())
-                today = date.today()
-                archivo = str(self.valor.get())+"_"+today.strftime("%d_%m_%Y")+".csv"
-                with open("exportar/"+archivo, "w", newline="") as csv_file:
-                    csv_writer = csv.writer(csv_file, delimiter=",")
-                    csv_writer.writerows(r)
-                mb.showinfo(message="Inventario exportado con éxito", title="¡Atención!")
-            except Exception as e:
-                mb.showerror(message=f"Ha ocurrido un error al exportar el inventario: {e}", title="Error")
+        val = str(self.valor.get()).strip()
+        if not val:
+            mb.showwarning(title="¡Atención!", message="Ingrese un número de acta antes de exportar.")
+            return
+
+        try:
+            r = mostrar_inventario(val)
+            if not r:
+                mb.showwarning(title="Sin datos", message=f"No se encontraron registros para el acta {val}.")
+                return
+
+            sugerido = generar_nombre_estandar("Inventario_Acta", identificador=val, extension="csv")
+            ruta_csv = solicitar_ruta_guardado(
+                tipo="csv",
+                nombre_sugerido=sugerido,
+                carpeta_defecto="exportar",
+                parent=self,
+                titulo=f"Exportar Inventario Acta {val} a CSV"
+            )
+            if not ruta_csv:
+                return
+
+            with open(ruta_csv, "w", newline="", encoding="utf-8-sig") as csv_file:
+                csv_writer = csv.writer(csv_file, delimiter=",")
+                csv_writer.writerows(r)
+
+            abrir_archivo_generado(
+                ruta_csv,
+                parent=self,
+                mensaje_exito=f"Inventario del acta {val} exportado con éxito a CSV."
+            )
+        except Exception as e:
+            mb.showerror(message=f"Ha ocurrido un error al exportar el inventario: {e}", title="Error")
 
     def generar_acta(self):
+        val = str(self.valor.get()).strip()
+        if not val:
+            mb.showwarning(title="¡Atención!", message="Seleccione o ingrese un número de acta para generar el PDF.")
+            return
         try:
-            iniciar_reporte(self.valor.get(), self.user, self.Ndni, self.team)
-            mb.showinfo(message="El acta se generó con éxito", title="Acontar S.A.C.")
+            sugerido = generar_nombre_estandar("FICHA_INVENTARIO", identificador=f"Acta_{val}", extension="pdf")
+            file_path = solicitar_ruta_guardado(
+                tipo="pdf",
+                nombre_sugerido=sugerido,
+                carpeta_defecto="fichas_inventario",
+                parent=self,
+                titulo=f"Guardar Ficha de Acta {val}"
+            )
+            if not file_path:
+                return
+
+            pdf_gen = iniciar_reporte(val, file_path, self.user, self.Ndni, self.team)
+            abrir_archivo_generado(
+                pdf_gen or file_path,
+                parent=self,
+                mensaje_exito=f"El acta {val} se generó con éxito en formato PDF."
+            )
         except Exception as e:
-            mb.showerror(message="Ocurrió un error al generar el acta", title="Error")
+            mb.showerror(message=f"Ocurrió un error al generar el acta:\n{e}", title="Error")
             print(str(e))
 
     def _on_tree_select_sutil(self, _event=None):
@@ -1920,15 +1982,203 @@ class Frame(ttk.Frame):
 
         opc11_menu = Menu(barra_menu, tearoff=0)
         barra_menu.add_cascade(label="Servidor", menu=opc11_menu)
-        opc11_menu.add_command(label="Probar Conexión", command=lambda: Window_connection_test(self))
-        opc11_menu.add_command(label="Iniciar Servidor Socket", command=lambda: Window_server(self))
-        opc11_menu.add_command(label="Visualizar Tablas", command=lambda: Window_view_data(self))
-        opc11_menu.add_command(label="Fotos del Servidor (asset_photos)", command=lambda: Window_asset_photos(self))
+        opc11_menu.add_command(label="ℹ️ Proyecto Activo y Estado de BD", command=self.mostrar_info_servidor)
+        opc11_menu.add_separator()
+        opc11_menu.add_command(label="📥 Descarga Inicial Completa (Initial Sync)", command=self.ejecutar_initial_sync_directo)
+        opc11_menu.add_command(label="⚡ Sincronizar Novedades (Sync Changes)", command=self.ejecutar_sync_changes_directo)
+        opc11_menu.add_command(label="🔄 Centro de Sincronización Cloud", command=lambda: Window_connection_test(self))
+        opc11_menu.add_separator()
+        opc11_menu.add_command(label="📋 Explorador de Tablas (SQLite Local)", command=lambda: Window_view_data(self))
+        opc11_menu.add_separator()
+        opc11_menu.add_command(label="🌐 Servidor Socket Local (P2P Legacy)", command=lambda: Window_server(self))
 
         opc12_menu = Menu(barra_menu, tearoff=0)
         barra_menu.add_cascade(label="Fotos", menu=opc12_menu)
         opc12_menu.add_command(label="Galería de Fotos", command=lambda: Window_asset_photos(self))
         opc12_menu.add_command(label="Asociar / Subir Foto", command=lambda: Window_asset_photos(self).dialogo_asociar_foto())
+
+    def mostrar_info_servidor(self):
+        """Muestra una ventana informativa con el estado del servidor y la base de datos activa."""
+        try:
+            active_proj = ProjectManager.get_active_project()
+            p_id = ProjectManager.get_active_project_id()
+            db_name = os.path.basename(self.db_path)
+            
+            total_assets = 0
+            pendientes = 0
+            sync_hecho = False
+            last_sync = "Nunca"
+            try:
+                conn = sqlite3.connect(self.db_path)
+                cur = conn.cursor()
+                cur.execute("SELECT COUNT(*) FROM assets")
+                total_assets = cur.fetchone()[0]
+                cur.execute("SELECT COUNT(*) FROM outbox_queue WHERE sync_status = 'pending'")
+                pendientes = cur.fetchone()[0]
+                sync_service = SyncService(conn)
+                sync_hecho = sync_service.is_initial_sync_done()
+                last_sync = get_config(conn, "last_sync_timestamp", "Nunca")
+                conn.close()
+            except Exception as e_db:
+                print(f"Error al consultar métricas de BD: {e_db}")
+
+            info_msg = (
+                f"🏷️  Proyecto Activo: {active_proj.get('name')} [{p_id}]\n"
+                f"🌐 Servidor API: {active_proj.get('api_url')}\n"
+                f"📁 Archivo SQLite: {db_name}\n"
+                f"📍 Ruta completa:\n    {self.db_path}\n\n"
+                f"-----------------------------------------\n"
+                f"📦 Bienes registrados en BD local: {total_assets:,}\n"
+                f"⏳ Cambios pendientes en cola: {pendientes}\n"
+                f"🔄 Sincronización Inicial: {'✅ Realizada' if sync_hecho else '⚠️ Pendiente'}\n"
+                f"🕒 Última sincronización: {last_sync}\n"
+            )
+            mb.showinfo(title="Estado del Servidor y BD Activa", message=info_msg, parent=self.root)
+        except Exception as e:
+            mb.showerror(title="Error al consultar estado", message=str(e), parent=self.root)
+
+    def ejecutar_initial_sync_directo(self):
+        """Ejecuta Initial Sync (descarga masiva) directamente desde el menú Servidor."""
+        if getattr(self, '_sync_en_proceso', False):
+            mb.showwarning(title="Sincronización en curso", message="Ya existe una sincronización ejecutándose.", parent=self.root)
+            return
+
+        confirma = mb.askyesno(
+            title="Confirmar Descarga Inicial (Initial Sync)",
+            message="¿Desea ejecutar la Descarga Inicial Completa (Initial Sync)?\n\n"
+                    "Esta operación descargará todo el catálogo de bienes, ubicaciones y personal "
+                    "del servidor configurado para este proyecto.",
+            parent=self.root
+        )
+        if not confirma:
+            return
+
+        self._sync_en_proceso = True
+
+        modal = Toplevel(self.root)
+        modal.title("Descargando Catálogo Inicial...")
+        modal.geometry("380x130")
+        modal.resizable(False, False)
+        modal.transient(self.root)
+        modal.grab_set()
+
+        lbl_info = tk.Label(
+            modal,
+            text="⏳ Conectando con el servidor...\nDescargando e insertando catálogo completo.",
+            font=("Segoe UI", 10),
+            padx=15,
+            pady=15
+        )
+        lbl_info.pack(fill="both", expand=True)
+
+        prog = ttk.Progressbar(modal, mode="indeterminate")
+        prog.pack(fill="x", padx=20, pady=(0, 15))
+        prog.start(10)
+
+        def _worker():
+            try:
+                db_conn = sqlite3.connect(self.db_path)
+                sync_service = SyncService(db_conn)
+                client = self.api_client or ApiManagerAcontarSacClient(timeout=180)
+                resultado = sync_service.execute_initial_sync(client)
+                db_conn.close()
+            except Exception as e:
+                resultado = {"status": "error", "message": str(e)}
+
+            def _finalizar():
+                try:
+                    prog.stop()
+                    modal.destroy()
+                except Exception:
+                    pass
+                self._sync_en_proceso = False
+
+                if resultado.get("status") == "success":
+                    mb.showinfo(
+                        title="Initial Sync Exitoso",
+                        message=f"✅ {resultado.get('message')}\n\nLos bienes y ubicaciones se han actualizado.",
+                        parent=self.root
+                    )
+                else:
+                    mb.showerror(
+                        title="Error en Initial Sync",
+                        message=f"❌ No se pudo completar Initial Sync:\n{resultado.get('message')}",
+                        parent=self.root
+                    )
+
+            self.root.after(0, _finalizar)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def ejecutar_sync_changes_directo(self):
+        """Ejecuta Sync Changes (diferencial) directamente desde el menú Servidor."""
+        if getattr(self, '_sync_en_proceso', False):
+            mb.showwarning(title="Sincronización en curso", message="Ya existe una sincronización ejecutándose.", parent=self.root)
+            return
+
+        self._sync_en_proceso = True
+
+        modal = Toplevel(self.root)
+        modal.title("Sincronizando Cambios...")
+        modal.geometry("380x130")
+        modal.resizable(False, False)
+        modal.transient(self.root)
+        modal.grab_set()
+
+        lbl_info = tk.Label(
+            modal,
+            text="⚡ Subiendo cola local pendiente y\nconsultando novedades del servidor...",
+            font=("Segoe UI", 10),
+            padx=15,
+            pady=15
+        )
+        lbl_info.pack(fill="both", expand=True)
+
+        prog = ttk.Progressbar(modal, mode="indeterminate")
+        prog.pack(fill="x", padx=20, pady=(0, 15))
+        prog.start(10)
+
+        def _worker():
+            try:
+                db_conn = sqlite3.connect(self.db_path)
+                sync_service = SyncService(db_conn)
+                client = self.api_client or ApiManagerAcontarSacClient(timeout=120)
+                resultado = sync_service.execute_sync_changes(client)
+                db_conn.close()
+            except Exception as e:
+                resultado = {"status": "error", "message": str(e)}
+
+            def _finalizar():
+                try:
+                    prog.stop()
+                    modal.destroy()
+                except Exception:
+                    pass
+                self._sync_en_proceso = False
+
+                st = resultado.get("status")
+                if st == "success":
+                    mb.showinfo(
+                        title="Sync Changes Exitoso",
+                        message=f"✅ {resultado.get('message')}\n\nNovedades sincronizadas con el servidor.",
+                        parent=self.root
+                    )
+                elif st == "deferred":
+                    mb.showwarning(
+                        title="Sync Changes Diferido",
+                        message=f"⚠️ {resultado.get('message')}",
+                        parent=self.root
+                    )
+                else:
+                    mb.showerror(
+                        title="Error en Sync Changes",
+                        message=f"❌ No se pudo completar Sync Changes:\n{resultado.get('message')}",
+                        parent=self.root
+                    )
+
+            self.root.after(0, _finalizar)
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def sincronizar_en_segundo_plano(self, intervalo_minutos=15):
         """Ejecuta sync_changes al iniciar y luego automáticamente cada X minutos."""
@@ -1938,11 +2188,12 @@ class Frame(ttk.Frame):
             
             while True:
                 try:
-                    db_path = getattr(self.root, "db_path", "db/orap2022.db")
+                    from utils.project_manager import ProjectManager
+                    db_path = getattr(self.root, "db_path", None) or getattr(self, "db_path", None) or ProjectManager.get_active_db_path()
                     db_conn = sqlite3.connect(db_path)
                     
                     sync_service = SyncService(db_conn)
-                    api_client = ApiManagerAcontarSacClient()
+                    api_client = getattr(self, 'api_client', None) or getattr(self.root, 'api_client', None) or ApiManagerAcontarSacClient()
 
                     if sync_service.is_initial_sync_done():
                         print("⚡ Ejecutando actualización periódica en segundo plano...")

@@ -10,8 +10,13 @@ def iniciar_reporte(reporte, encabezados, datos, colWidths, direccion,
                     subtitulo=None, entidad=None, logo_path=None, mostrar_logo=True,
                     cols_metadata=None):
 
-    pdf_name = str(reporte) + ".pdf"
-    pathpdf = os.path.join(direccion, pdf_name)
+    if direccion.lower().endswith('.pdf'):
+        pathpdf = direccion
+    else:
+        pdf_name = str(reporte).strip() + ".pdf"
+        pathpdf = os.path.join(direccion, pdf_name)
+
+    os.makedirs(os.path.dirname(os.path.abspath(pathpdf)), exist_ok=True)
 
     doc = SimpleDocTemplate(pathpdf, pagesize=landscape(A4),
                             rightMargin=40, leftMargin=40,
@@ -120,3 +125,4 @@ def iniciar_reporte(reporte, encabezados, datos, colWidths, direccion,
         return PageNumCanvas(*args, orientacion=0, logo_path=logo_path, mostrar_logo=mostrar_logo, **kwargs)
 
     doc.build(elements, canvasmaker=make_canvas)
+    return pathpdf

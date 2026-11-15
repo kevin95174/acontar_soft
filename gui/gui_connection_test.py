@@ -31,9 +31,8 @@ class Window_connection_test(tk.Toplevel):
         except Exception:
             pass
 
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        default_db = os.path.join(base_dir, "..", "db", "orap2022.db")
-        self.db_path = getattr(self.root, "db_path", os.path.normpath(default_db))
+        from utils.project_manager import ProjectManager
+        self.db_path = getattr(self.root, "db_path", None) or ProjectManager.get_active_db_path()
 
         self.status = tk.StringVar(value="Listo para sincronizar.")
         self.pending_summary = tk.StringVar(value="Cola pendiente: 0 cambios")
@@ -98,6 +97,21 @@ class Window_connection_test(tk.Toplevel):
             anchor="w",
         ).pack(fill="x", pady=(2, 0))
 
+        try:
+            from utils.project_manager import ProjectManager
+            active_proj = ProjectManager.get_active_project()
+            db_file_name = os.path.basename(self.db_path)
+            tk.Label(
+                title_col,
+                text=f"Servidor: {active_proj.get('name')}  |  BD: {db_file_name}",
+                bg="#f8fafc",
+                fg="#2563eb",
+                font=("Segoe UI", 8, "bold"),
+                anchor="w",
+            ).pack(fill="x", pady=(2, 0))
+        except Exception:
+            pass
+
         self.lbl_pending_chip = tk.Label(
             header,
             textvariable=self.pending_summary,
@@ -125,17 +139,31 @@ class Window_connection_test(tk.Toplevel):
 
         self.btn_sync = ttk.Button(
             btn_row,
-            text="🔄 Sincronizar Todo (Subir y Descargar)",
+            text="🔄 Sincronizar Automático",
             command=self.ejecutar_sincronizacion,
         )
-        self.btn_sync.pack(side="left", padx=(0, 8))
+        self.btn_sync.pack(side="left", padx=(0, 6))
+
+        self.btn_initial = ttk.Button(
+            btn_row,
+            text="📥 Initial Sync",
+            command=self.ejecutar_initial_sync,
+        )
+        self.btn_initial.pack(side="left", padx=(0, 6))
+
+        self.btn_changes = ttk.Button(
+            btn_row,
+            text="⚡ Sync Changes",
+            command=self.ejecutar_sync_changes,
+        )
+        self.btn_changes.pack(side="left", padx=(0, 6))
 
         self.btn_push = ttk.Button(
             btn_row,
-            text="📤 Enviar Cola Local",
+            text="📤 Subir Cola",
             command=self.enviar_cola_local,
         )
-        self.btn_push.pack(side="left", padx=(0, 8))
+        self.btn_push.pack(side="left", padx=(0, 6))
 
         self.btn_ping = ttk.Button(
             btn_row,
@@ -230,8 +258,51 @@ class Window_connection_test(tk.Toplevel):
             self.log(f"❌ Error al consultar SQLite: {e}")
 
     def _set_buttons_state(self, state: str):
-        for btn in (self.btn_sync, self.btn_push, self.btn_ping):
-            btn.configure(state=state)
+        for btn in (self.btn_sync, self.btn_initial, self.btn_changes, self.btn_push, self.btn_ping):
+            try:
+                btn.configure(state=state)
+            except Exception:
+                pass
+
+    def ejecutar_initial_sync(self):
+        """Fuerza la ejecución explícita de Initial Sync (descarga masiva completa)."""
+        self._set_buttons_state("disabled")
+        self.status.set("Descargando catálogo completo (Initial Sync)...")
+        self.log("🚀 Iniciando descarga masiva e inserción en SQLite (Initial Sync)...")
+
+        def _hilo():
+            try:
+                db_conn = sqlite3.connect(self.db_path)
+                sync_service = SyncService(db_conn)
+                client = getattr(self.root, 'api_client', None) or ApiManagerAcontarSacClient(timeout=180)
+                resultado = sync_service.execute_initial_sync(client)
+                db_conn.close()
+                self.after(0, self._refrescar_conteo_cola)
+                self.after(0, self._finalizar_sincronizacion, resultado)
+            except Exception as e:
+                self.after(0, self._finalizar_sincronizacion, {"status": "error", "message": str(e)})
+
+        threading.Thread(target=_hilo, daemon=True).start()
+
+    def ejecutar_sync_changes(self):
+        """Fuerza la ejecución explícita de Sync Changes (diferencial)."""
+        self._set_buttons_state("disabled")
+        self.status.set("Sincronizando novedades (Sync Changes)...")
+        self.log("⚡ Subiendo cola local y consultando novedades en el servidor (Sync Changes)...")
+
+        def _hilo():
+            try:
+                db_conn = sqlite3.connect(self.db_path)
+                sync_service = SyncService(db_conn)
+                client = getattr(self.root, 'api_client', None) or ApiManagerAcontarSacClient(timeout=120)
+                resultado = sync_service.execute_sync_changes(client)
+                db_conn.close()
+                self.after(0, self._refrescar_conteo_cola)
+                self.after(0, self._finalizar_sincronizacion, resultado)
+            except Exception as e:
+                self.after(0, self._finalizar_sincronizacion, {"status": "error", "message": str(e)})
+
+        threading.Thread(target=_hilo, daemon=True).start()
 
     def probar_conexion(self):
         """Lanza un hilo para verificar respuesta del servidor."""
@@ -241,7 +312,7 @@ class Window_connection_test(tk.Toplevel):
 
     def _hilo_ping(self):
         try:
-            client = ApiManagerAcontarSacClient(timeout=10)
+            client = getattr(self.root, 'api_client', None) or ApiManagerAcontarSacClient(timeout=10)
             res = client.ping()
             self.after(0, lambda: self.log(f"📡 Respuesta servidor: {res}"))
             self.after(0, lambda: self.status.set("Servidor en línea."))
@@ -263,7 +334,7 @@ class Window_connection_test(tk.Toplevel):
             reconciliar_tablas_locales_a_servidor(db_conn)
             db_conn.close()
 
-            client = ApiManagerAcontarSacClient(timeout=30)
+            client = getattr(self.root, 'api_client', None) or ApiManagerAcontarSacClient(timeout=30)
             res = sincronizar_cola_completa(client, limite=200)
             synced = res.get("synced", 0)
             pending = res.get("pending", 0)
@@ -290,7 +361,7 @@ class Window_connection_test(tk.Toplevel):
         try:
             db_conn = sqlite3.connect(self.db_path)
             sync_service = SyncService(db_conn)
-            client = ApiManagerAcontarSacClient(timeout=120)
+            client = getattr(self.root, 'api_client', None) or ApiManagerAcontarSacClient(timeout=120)
 
             if not sync_service.is_initial_sync_done():
                 self.after(0, lambda: self.status.set("Descargando catálogo completo (Initial Sync)..."))

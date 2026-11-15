@@ -4,10 +4,29 @@ import os
 from sqlite3 import Error
 
 _DB_INITIALIZED = False
+_CURRENT_DB_PATH = None
+
+
+def set_database_path(db_path: str):
+    """Establece explícitamente la ruta de la base de datos SQLite activa."""
+    global _CURRENT_DB_PATH, _DB_INITIALIZED
+    if db_path:
+        _CURRENT_DB_PATH = os.path.normpath(db_path)
+        _DB_INITIALIZED = False
 
 
 def get_database_path():
     """Retorna la ruta absoluta al archivo SQLite tanto en desarrollo como en ejecutable PyInstaller."""
+    global _CURRENT_DB_PATH
+    if _CURRENT_DB_PATH and os.path.isabs(_CURRENT_DB_PATH):
+        return _CURRENT_DB_PATH
+
+    try:
+        from utils.project_manager import ProjectManager
+        return ProjectManager.get_active_db_path()
+    except Exception:
+        pass
+
     if getattr(sys, 'frozen', False):
         base_dir = os.path.dirname(sys.executable)
     else:

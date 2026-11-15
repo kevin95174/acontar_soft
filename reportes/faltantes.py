@@ -3,27 +3,42 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.platypus import SimpleDocTemplate, Table, Paragraph
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from tkinter import filedialog
+from utils.export_utils import solicitar_ruta_guardado, sanitizar_nombre_archivo
 from db.query import reporte_faltantes, mostrar_d_personal
 from utils.pdf_utils import PageNumCanvas
 
-def iniciar_reporte(n_acta):
+def iniciar_reporte(n_acta, direccion=None, parent=None):
         r = mostrar_d_personal(n_acta)
-        v1 = r[0][0]
-        v2 = r[0][1]
-        v3 = r[0][2]
-        v4 = r[0][3]
-        v5 = r[0][4]
-        v6 = r[0][5]
+        if r and len(r) > 0:
+            v1 = r[0][0]
+            v2 = r[0][1]
+            v3 = r[0][2]
+            v4 = r[0][3]
+            v5 = r[0][4]
+            v6 = r[0][5]
+            j = "Acta " + str(v1) + " " + str(v2) + " AREA " + str(v3) + " OFICINA " + str(v4)
+        else:
+            j = f"Acta_{n_acta}"
 
-        pathinit = 'exportar/reportes/'
-        file_path = filedialog.askdirectory(initialdir=pathinit)        
+        pdf_name = "Faltantes_" + sanitizar_nombre_archivo(str(j)) + ".pdf"
 
-        j = "Acta " + str(v1) + " " + str(v2) + " " + "AREA " + str(v3) + " " + "OFICINA " + str(v4)
-        # j = "Acta " + Paragraph(v1) + " " + Paragraph(v2) + " " + "AREA " + Paragraph(v3) + " " + "OFICINA " + Paragraph(v4)
-        pdf_name = "Faltantes_"+str(j)+".pdf"
-        pathinit = 'report_actas/reporte_faltantes/'
-        pathpdf = os.path.join(file_path, pdf_name)
+        if direccion:
+            if str(direccion).lower().endswith('.pdf'):
+                pathpdf = direccion
+            else:
+                pathpdf = os.path.join(direccion, pdf_name)
+        else:
+            pathpdf = solicitar_ruta_guardado(
+                tipo="pdf",
+                nombre_sugerido=pdf_name,
+                carpeta_defecto="report_actas/reporte_faltantes",
+                parent=parent,
+                titulo="Guardar Reporte de Bienes Faltantes"
+            )
+            if not pathpdf:
+                return None
+
+        os.makedirs(os.path.dirname(os.path.abspath(pathpdf)), exist_ok=True)
 
         doc = SimpleDocTemplate(pathpdf, pagesize=landscape(A4),
                                 rightMargin=40, leftMargin=40,
@@ -162,3 +177,4 @@ def iniciar_reporte(n_acta):
             return PageNumCanvas(*args, **kwargs)
 
         doc.build(elements, canvasmaker=create_canvas)
+        return pathpdf

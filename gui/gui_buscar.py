@@ -1190,8 +1190,7 @@ class Window_buscar(tk.Toplevel):
             return
 
         try:
-            exportar_excel("Buscar_Bienes", self.lista, datos)
-            mb.showinfo("Exportación Exitosa", "Archivo Excel generado con éxito en la carpeta 'exportar/'.", parent=self)
+            exportar_excel("Buscar_Bienes", self.lista, datos, parent=self)
             self.focus_set()
         except Exception as e:
             mb.showerror("Error al Exportar", f"No se pudo exportar a Excel: {e}", parent=self)

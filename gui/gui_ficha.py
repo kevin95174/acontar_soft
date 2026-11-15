@@ -1,8 +1,16 @@
+import os
 import tkinter as tk
 from datetime import date
 from tkinter import ttk, filedialog
 from tkinter import messagebox as mb
 from reportes.ficha import iniciar_reporte
+from utils.export_utils import solicitar_ruta_guardado, abrir_archivo_generado, generar_nombre_estandar
+from label.label_gen import (
+	obtener_impresoras_sistema,
+	obtener_impresora_configurada,
+	guardar_impresora_configurada,
+	_enviar_pdf_a_impresora,
+)
 from gui.gui_detalles import Window_detalles
 from db.query import (
 	buscar_criterio_acta_ant,
@@ -38,6 +46,7 @@ class Window_Acta(tk.Toplevel):
 
 		self.variables()
 		self.widgets()
+		self._cargar_impresoras()
 		self.tree_view()
 		self.tree.bind("<Double-Button-1>", self.mostrar_datos_)
 
@@ -134,6 +143,7 @@ class Window_Acta(tk.Toplevel):
 
 		self.nacta = tk.StringVar()
 		self.ba = tk.IntVar()
+		self.impresora_var = tk.StringVar()
 
 	# -------------------------------------------------------------------------
 	# CONSTRUCCIÓN DE INTERFAZ
@@ -166,24 +176,43 @@ class Window_Acta(tk.Toplevel):
 		today = date.today()
 		self.fech.set(today.strftime("%d/%m/%Y"))
 
-		# Fila 0: Nro de Ficha + Botones Buscar y PDF + Fecha
+		# Fila 0: Nro de Ficha + Botones Buscar, PDF, Imprimir, Selector de Impresora y Fecha
 		ttk.Label(card_ficha, text="N° de Ficha:", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, padx=4, pady=3, sticky="w")
 
 		f_acta_bar = tk.Frame(card_ficha, bg="#ffffff")
 		f_acta_bar.grid(row=0, column=1, columnspan=3, padx=4, pady=3, sticky="ew")
 
-		self.etrnAct = ttk.Entry(f_acta_bar, textvariable=self.acta, width=10, justify="center", font=("Segoe UI", 9, "bold"))
-		self.etrnAct.pack(side="left", padx=(0, 6))
+		self.etrnAct = ttk.Entry(f_acta_bar, textvariable=self.acta, width=9, justify="center", font=("Segoe UI", 9, "bold"))
+		self.etrnAct.pack(side="left", padx=(0, 5))
 		self.etrnAct.bind("<Return>", lambda _e: self.iniciar_filtro())
 
-		btnBusc = ttk.Button(f_acta_bar, text="🔍 Buscar Ficha", command=self.iniciar_filtro)
-		btnBusc.pack(side="left", padx=(0, 6))
+		btnBusc = ttk.Button(f_acta_bar, text="🔍 Buscar", command=self.iniciar_filtro)
+		btnBusc.pack(side="left", padx=(0, 5))
 
-		btnGene = ttk.Button(f_acta_bar, text="📄 Exportar PDF", command=self.acta_inventario)
-		btnGene.pack(side="left", padx=(0, 12))
+		btnGene = ttk.Button(f_acta_bar, text="📄 PDF", command=self.acta_inventario)
+		btnGene.pack(side="left", padx=(0, 5))
 
-		ttk.Label(f_acta_bar, text="Fecha Inv.:").pack(side="left", padx=(4, 4))
-		ttk.Entry(f_acta_bar, textvariable=self.fech, width=12, justify="center").pack(side="left")
+		btnImpr = ttk.Button(f_acta_bar, text="🖨️ Imprimir", command=self.imprimir_ficha)
+		btnImpr.pack(side="left", padx=(0, 5))
+
+		# Selector sutil de impresora (píldora compacta y discreta)
+		f_imp_sutil = tk.Frame(f_acta_bar, bg="#f8fafc", padx=3, pady=1, highlightbackground="#e2e8f0", highlightthickness=1)
+		f_imp_sutil.pack(side="left", padx=(0, 8))
+
+		tk.Label(f_imp_sutil, text="🖨️", font=("Segoe UI", 8), bg="#f8fafc", fg="#64748b").pack(side="left", padx=(1, 2))
+		self.cbx_impresora = ttk.Combobox(
+			f_imp_sutil,
+			textvariable=self.impresora_var,
+			state="readonly",
+			width=15,
+			font=("Segoe UI", 8),
+			postcommand=self._cargar_impresoras
+		)
+		self.cbx_impresora.pack(side="left")
+		self.cbx_impresora.bind("<<ComboboxSelected>>", self._al_seleccionar_impresora)
+
+		ttk.Label(f_acta_bar, text="Fecha:").pack(side="left", padx=(2, 3))
+		ttk.Entry(f_acta_bar, textvariable=self.fech, width=10, justify="center").pack(side="left")
 
 		# Fila 1: Ubicación
 		ttk.Label(card_ficha, text="Ubicación:").grid(row=1, column=0, padx=4, pady=3, sticky="w")
@@ -456,28 +485,128 @@ class Window_Acta(tk.Toplevel):
 		self.lbl_total.config(text=f"📋  {len(r)} bienes filtrados")
 
 	def acta_inventario(self):
-		if not self.acta.get().strip():
+		num_acta = self.acta.get().strip()
+		if not num_acta:
 			mb.showwarning(title="Atención", message="Busque una ficha antes de exportar a PDF.", parent=self)
 			return
 		try:
-			file_path = filedialog.askdirectory(initialdir="fichas_inventario", title="Seleccionar carpeta de destino")
-			if file_path:
-				iniciar_reporte(
-					self.acta.get(),
-					file_path,
-					self.inve.get(),
-					self.idni.get(),
-					self.equi.get(),
-					self.ba.get(),
-					self.fech.get(),
-					self.acta.get()
-				)
-				mb.showinfo(title="¡Atención!", message="Ficha PDF generada con éxito.", parent=self)
+			sugerido = generar_nombre_estandar("FICHA_INVENTARIO", identificador=f"Acta_{num_acta}", extension="pdf")
+			file_path = solicitar_ruta_guardado(
+				tipo="pdf",
+				nombre_sugerido=sugerido,
+				carpeta_defecto="fichas_inventario",
+				parent=self,
+				titulo="Guardar Ficha de Levantamiento de Información"
+			)
+			if not file_path:
+				return
+
+			pdf_gen = iniciar_reporte(
+				num_acta,
+				file_path,
+				self.inve.get(),
+				self.idni.get(),
+				self.equi.get(),
+				self.ba.get(),
+				self.fech.get(),
+				num_acta
+			)
+			abrir_archivo_generado(
+				pdf_gen or file_path,
+				parent=self,
+				mensaje_exito=f"Ficha PDF para el Acta '{num_acta}' generada con éxito."
+			)
 			self.focus_set()
 		except Exception as e:
 			mb.showerror(title="Error", message=f"Error al generar el acta:\n{e}", parent=self)
 			self.focus_set()
 			print(e)
+
+	def _cargar_impresoras(self):
+		"""Carga las impresoras del sistema y selecciona la configurada o predeterminada."""
+		try:
+			impresoras, predeterminada = obtener_impresoras_sistema()
+			guardada = obtener_impresora_configurada()
+			seleccion = guardada or predeterminada or (impresoras[0] if impresoras else "")
+
+			if not self.impresora_var.get() or (impresoras and self.impresora_var.get() not in impresoras):
+				self.impresora_var.set(seleccion)
+
+			valores = impresoras if impresoras else (["(Sin impresoras)"])
+			if hasattr(self, 'cbx_impresora'):
+				self.cbx_impresora['values'] = valores
+		except Exception as e:
+			print(f"[GUI_FICHA][WARN] No se pudieron cargar las impresoras: {e}")
+
+	def _al_seleccionar_impresora(self, _event=None):
+		"""Persiste la impresora seleccionada en config.ini."""
+		nom = self.impresora_var.get().strip()
+		if nom and nom != "(Sin impresoras)":
+			try:
+				guardar_impresora_configurada(nom)
+			except Exception as e:
+				print(f"[GUI_FICHA][WARN] Error al guardar impresora: {e}")
+
+	def imprimir_ficha(self):
+		"""Genera la ficha en PDF y la envía directamente a la impresora seleccionada."""
+		num_acta = self.acta.get().strip()
+		if not num_acta:
+			mb.showwarning(title="Atención", message="Busque o seleccione una ficha antes de imprimir.", parent=self)
+			return
+
+		imp_activa = self.impresora_var.get().strip()
+		if not imp_activa or imp_activa == "(Sin impresoras)":
+			mb.showwarning(
+				title="Impresora no detectada",
+				message="No se detectó ninguna impresora activa en el sistema.\nVerifique que su impresora esté conectada y encendida en Windows.",
+				parent=self
+			)
+			return
+
+		confirmar = mb.askyesno(
+			title="Confirmar Impresión",
+			message=f"¿Desea enviar la Ficha de Levantamiento de Información N° {num_acta} a imprimir?\n\nImpresora destino:\n'{imp_activa}'",
+			parent=self
+		)
+		if not confirmar:
+			return
+
+		try:
+			temp_dir = os.path.abspath("fichas_inventario")
+			os.makedirs(temp_dir, exist_ok=True)
+			temp_pdf = os.path.join(temp_dir, f"_temp_print_acta_{num_acta}.pdf")
+
+			pdf_gen = iniciar_reporte(
+				num_acta,
+				temp_pdf,
+				self.inve.get(),
+				self.idni.get(),
+				self.equi.get(),
+				self.ba.get(),
+				self.fech.get(),
+				num_acta
+			)
+
+			pdf_a_imprimir = pdf_gen or temp_pdf
+			if not os.path.exists(pdf_a_imprimir):
+				raise RuntimeError(f"No se pudo generar el archivo temporal para impresión: {pdf_a_imprimir}")
+
+			_enviar_pdf_a_impresora(pdf_a_imprimir, impresora=imp_activa)
+
+			mb.showinfo(
+				title="Impresión enviada",
+				message=f"La Ficha N° {num_acta} fue enviada con éxito a la impresora:\n'{imp_activa}'.",
+				parent=self
+			)
+			self.focus_set()
+		except Exception as e:
+			mb.showerror(
+				title="Error de Impresión",
+				message=f"No se pudo completar la impresión de la ficha:\n{e}",
+				parent=self
+			)
+			self.focus_set()
+			print(f"[GUI_FICHA][ERROR] {e}")
 
 	def mostrar_datos_(self, *args):
 		try:

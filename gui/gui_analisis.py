@@ -7,6 +7,7 @@ import threading
 from db.query import analisis_1
 from reportes.analisis import iniciar_reporte
 from data.exp_excel import exportar_excel
+from utils.export_utils import solicitar_ruta_guardado, abrir_archivo_generado, generar_nombre_estandar
 from gui.gui_detalle_analisis import Window_d_analisis
 from utils.order_utils import sort_by
 from utils.helpers import resource_path
@@ -1128,10 +1129,21 @@ class Window_analisis(tk.Toplevel):
                 mb.showwarning("Atención", "No hay datos para exportar a PDF.", parent=self)
                 return
 
-            file_path = filedialog.askdirectory(initialdir='report_actas/reporte_analisis/', parent=self)
+            sugerido = generar_nombre_estandar(self.arc.strip() or "Analisis", extension="pdf")
+            file_path = solicitar_ruta_guardado(
+                tipo="pdf",
+                nombre_sugerido=sugerido,
+                carpeta_defecto='report_actas/reporte_analisis/',
+                parent=self,
+                titulo="Guardar Reporte de Análisis en PDF"
+            )
             if file_path:
-                iniciar_reporte(data, file_path, self.colWidths, self.arc, self.lista, self.orientacion, self.columna)
-                mb.showinfo(message="Reporte PDF exportado con éxito.", title="¡Atención!", parent=self)
+                pdf_gen = iniciar_reporte(data, file_path, self.colWidths, self.arc, self.lista, self.orientacion, self.columna)
+                abrir_archivo_generado(
+                    pdf_gen or file_path,
+                    parent=self,
+                    mensaje_exito="Reporte PDF de análisis exportado con éxito."
+                )
         except Exception as e:
             mb.showerror(message=f"Ha ocurrido un error al exportar:\n{e}", title="Error", parent=self)
             print(str(e))
@@ -1149,7 +1161,7 @@ class Window_analisis(tk.Toplevel):
             return
 
         encabezados_limpios = [str(c).replace('\n', ' ') for c in self.lista]
-        exportar_excel(self.arc.strip(), encabezados_limpios, datos)
+        exportar_excel(self.arc.strip(), encabezados_limpios, datos, parent=self)
         self.focus_set()
 
     def mostrar_datos(self, *args):

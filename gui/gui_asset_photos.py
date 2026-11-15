@@ -32,10 +32,14 @@ class Window_asset_photos(tk.Toplevel):
 
         # Rutas de base de datos y fotos
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        default_db = os.path.join(base_dir, "..", "db", "orap2022.db")
-        self.db_path = getattr(self.root, "db_path", os.path.normpath(default_db))
+        from utils.project_manager import ProjectManager
+        self.db_path = getattr(self.root, "db_path", None) or ProjectManager.get_active_db_path()
         self.photos_dir = os.path.join(base_dir, "..", "photos")
         os.makedirs(self.photos_dir, exist_ok=True)
+
+        active_proj = ProjectManager.get_active_project()
+        db_file_name = os.path.basename(self.db_path)
+        self.title(f"Gestión de Fotografías — [{active_proj.get('name', 'Proyecto')}] ({db_file_name})")
 
         self.api_client = getattr(self.root, "api_client", None) or ApiManagerAcontarSacClient()
 

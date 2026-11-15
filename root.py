@@ -6,6 +6,7 @@ import sys
 import traceback
 
 from utils.helpers import resource_path
+from utils.project_manager import ProjectManager
 
 # 1. Definición de la ruta base y del entorno de ejecución
 if getattr(sys, 'frozen', False):
@@ -17,8 +18,8 @@ else:
     # Ejecutándose en entorno de desarrollo Python
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-DB_PATH = os.path.join(BASE_DIR, "db", "orap2022.db")
-API_BASE_URL = "https://api.acontarsac.com"
+DB_PATH = ProjectManager.get_active_db_path()
+API_BASE_URL = ProjectManager.get_active_api_url()
 
 
 def main():
@@ -40,8 +41,14 @@ def main():
     from services.sync_service import SyncService
     from gui.gui_login import Frame_login
     from utils.api_client import ApiManagerAcontarSacClient as ApiClient
+    from utils.project_manager import ProjectManager
+    from db.conex import set_database_path
 
-    db_conn = sqlite3.connect(DB_PATH)
+    active_proj = ProjectManager.get_active_project()
+    db_path = ProjectManager.get_active_db_path()
+    set_database_path(db_path)
+
+    db_conn = sqlite3.connect(db_path)
     init_db(db_conn)
 
     # 4. Verificar estado del Sync Inicial
@@ -49,7 +56,8 @@ def main():
     sync_realizado = sync_service.is_initial_sync_done()
     db_conn.close()
 
-    print(f"✓ BD conectada en: {DB_PATH}")
+    print(f"✓ Proyecto activo: {active_proj.get('name')} ({active_proj.get('api_url')})")
+    print(f"✓ BD conectada en: {db_path}")
     print(f"✓ Sincronización inicial previa: {sync_realizado}")
 
     # 5. Iniciar Interfaz Tkinter
@@ -72,13 +80,17 @@ def main():
     root.configure(background='white')
 
     # 6. Instanciar y vincular ApiClient a 'root'
-    api_client = ApiClient(base_url=API_BASE_URL)
+    api_client = ApiClient(
+        base_url=active_proj.get("api_url"),
+        photos_base_url=active_proj.get("photos_url")
+    )
     root.api_client = api_client
+    root.db_path = db_path
 
     # 7. Pasar 'api_client' a la vista de login
     Frame_login(
         root=root,
-        db_path=DB_PATH,
+        db_path=db_path,
         sync_realizado=sync_realizado,
         api_client=api_client
     )

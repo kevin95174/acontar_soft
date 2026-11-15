@@ -71,6 +71,13 @@ class Window_label_designer(tk.Toplevel):
         # Mostrar u ocultar cajas guía sobre la vista previa real
         self.var_mostrar_guias = tk.BooleanVar(value=True)
 
+        # Configuración de niveles de ubicación (Local, Área, Oficina)
+        self.var_inc_local = tk.BooleanVar(value=True)
+        self.var_inc_area = tk.BooleanVar(value=True)
+        self.var_inc_oficina = tk.BooleanVar(value=True)
+        self.var_ubi_sep = tk.StringVar(value=" - ")
+        self.niveles_ordenados = ["local", "area", "oficina"]
+
         self._crear_interfaz()
         self._cargar_datos_etiqueta()
         self._cargar_elemento_en_inspector(self.selected_key)
@@ -204,15 +211,22 @@ class Window_label_designer(tk.Toplevel):
             textvariable=self.var_elem_sel,
             values=[item[1] for item in self.opciones_elementos],
             state="readonly",
-            width=30
+            width=22
         )
-        self.cbx_elem.grid(row=0, column=1, padx=6, pady=3, sticky="ew")
+        self.cbx_elem.grid(row=0, column=1, padx=(4, 2), pady=3, sticky="ew")
         self.cbx_elem.bind("<<ComboboxSelected>>", self._on_combobox_elem_select)
+
+        self.btn_goto_ubi = ttk.Button(
+            f_elem_sel,
+            text="📍 Niveles Ubicación...",
+            command=self._seleccionar_ubicacion_rapida
+        )
+        self.btn_goto_ubi.grid(row=0, column=2, padx=(2, 4), pady=3)
 
         ttk.Label(f_elem_sel, text="Texto / Dato:").grid(row=1, column=0, padx=4, pady=3, sticky="w")
         self.var_sample_text = tk.StringVar(value="")
         self.etr_sample_text = ttk.Entry(f_elem_sel, textvariable=self.var_sample_text)
-        self.etr_sample_text.grid(row=1, column=1, padx=6, pady=3, sticky="ew")
+        self.etr_sample_text.grid(row=1, column=1, columnspan=2, padx=4, pady=3, sticky="ew")
         self.etr_sample_text.bind("<KeyRelease>", self._on_sample_text_entry_change)
         f_elem_sel.columnconfigure(1, weight=1)
 
@@ -298,6 +312,78 @@ class Window_label_designer(tk.Toplevel):
         )
         self.cbx_align.grid(row=4, column=1, padx=4, pady=3, sticky="w")
         self.cbx_align.bind("<<ComboboxSelected>>", lambda _e: self._on_prop_change())
+
+        # Panel especializado: Configuración de Niveles y Orden de Ubicación (Local / Área / Oficina)
+        self.f_ubi_niveles = ttk.LabelFrame(
+            self.frame_right, 
+            text=" 📍 Niveles y Formato de Ubicación (Local / Área / Oficina) ", 
+            padding=8
+        )
+        # Se empacará dinámicamente cuando el elemento seleccionado sea 'ubicacion'
+
+        ttk.Label(
+            self.f_ubi_niveles,
+            text="Seleccione los campos a incluir y organice su orden libremente en la etiqueta:",
+            font=("Segoe UI", 8, "italic")
+        ).pack(fill="x", pady=(0, 4))
+
+        # Checkboxes de inclusión de campos
+        f_checks = tk.Frame(self.f_ubi_niveles, bg="#f8fafc")
+        f_checks.pack(fill="x", pady=2)
+        ttk.Label(f_checks, text="Campos:", font=("Segoe UI", 8, "bold")).pack(side="left", padx=(2, 4))
+        self.chk_inc_local = ttk.Checkbutton(f_checks, text="🏢 Local", variable=self.var_inc_local, command=self._on_ubi_checkbox_toggle)
+        self.chk_inc_local.pack(side="left", padx=4)
+        self.chk_inc_area = ttk.Checkbutton(f_checks, text="📂 Área", variable=self.var_inc_area, command=self._on_ubi_checkbox_toggle)
+        self.chk_inc_area.pack(side="left", padx=4)
+        self.chk_inc_oficina = ttk.Checkbutton(f_checks, text="📍 Oficina", variable=self.var_inc_oficina, command=self._on_ubi_checkbox_toggle)
+        self.chk_inc_oficina.pack(side="left", padx=4)
+
+        # Caja de orden con Listbox y botones Subir / Bajar
+        f_orden_box = tk.Frame(self.f_ubi_niveles, bg="#f8fafc")
+        f_orden_box.pack(fill="x", pady=(4, 2))
+
+        f_list = tk.Frame(f_orden_box, bg="#f8fafc")
+        f_list.pack(side="left", fill="both", expand=True)
+
+        ttk.Label(f_list, text="Orden de los niveles:", font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        self.list_niveles = tk.Listbox(f_list, height=3, selectmode="single", font=("Segoe UI", 9), bd=1, relief="solid")
+        self.list_niveles.pack(fill="x", expand=True, pady=2)
+
+        f_btns_orden = tk.Frame(f_orden_box, bg="#f8fafc")
+        f_btns_orden.pack(side="right", padx=(6, 0), pady=(12, 0))
+        ttk.Button(f_btns_orden, text="⬆ Subir", width=7, command=self._subir_nivel_ubicacion).pack(pady=1)
+        ttk.Button(f_btns_orden, text="⬇ Bajar", width=7, command=self._bajar_nivel_ubicacion).pack(pady=1)
+
+        # Separador entre niveles
+        f_sep = tk.Frame(self.f_ubi_niveles, bg="#f8fafc")
+        f_sep.pack(fill="x", pady=2)
+        ttk.Label(f_sep, text="Separador:").pack(side="left", padx=(2, 6))
+        self.cbx_ubi_sep = ttk.Combobox(f_sep, textvariable=self.var_ubi_sep, values=[" - ", " / ", " | ", ", ", " "], width=6, state="normal")
+        self.cbx_ubi_sep.pack(side="left")
+        self.cbx_ubi_sep.bind("<<ComboboxSelected>>", lambda _e: self._on_ubi_niveles_changed())
+        self.cbx_ubi_sep.bind("<KeyRelease>", lambda _e: self._on_ubi_niveles_changed())
+
+        # Preajustes rápidos de 1 clic
+        f_presets = tk.Frame(self.f_ubi_niveles, bg="#f8fafc")
+        f_presets.pack(fill="x", pady=(4, 2))
+        ttk.Label(f_presets, text="Preajustes rápidos:", font=("Segoe UI", 8, "italic")).pack(anchor="w", padx=2)
+        f_p_btns = tk.Frame(f_presets, bg="#f8fafc")
+        f_p_btns.pack(fill="x", pady=2)
+        ttk.Button(f_p_btns, text="Local - Área - Oficina", command=lambda: self._aplicar_preset_ubicacion(["local", "area", "oficina"])).pack(side="left", padx=1)
+        ttk.Button(f_p_btns, text="Local - Área", command=lambda: self._aplicar_preset_ubicacion(["local", "area"])).pack(side="left", padx=1)
+        ttk.Button(f_p_btns, text="Área - Oficina", command=lambda: self._aplicar_preset_ubicacion(["area", "oficina"])).pack(side="left", padx=1)
+        ttk.Button(f_p_btns, text="Solo Oficina", command=lambda: self._aplicar_preset_ubicacion(["oficina"])).pack(side="left", padx=1)
+        ttk.Button(f_p_btns, text="Oficina - Área - Local", command=lambda: self._aplicar_preset_ubicacion(["oficina", "area", "local"])).pack(side="left", padx=1)
+
+        # Vista previa en vivo del texto resultante
+        self.lbl_ubi_preview_texto = ttk.Label(
+            self.f_ubi_niveles,
+            text="",
+            font=("Segoe UI", 8, "bold"),
+            foreground="#2563eb",
+            wraplength=480
+        )
+        self.lbl_ubi_preview_texto.pack(fill="x", pady=(4, 2), padx=2)
 
         # 3. Datos Globales de la Etiqueta (Entidad y Período)
         f_datos = ttk.LabelFrame(self.frame_right, text=" 3. Datos Globales de la Etiqueta (BD) ", padding=8)
@@ -839,7 +925,152 @@ class Window_label_designer(tk.Toplevel):
             self.lbl_align.grid()
             self.cbx_align.grid()
 
+        if key == "ubicacion":
+            self._cargar_configuracion_ubicacion_ui()
+            self.f_ubi_niveles.pack(fill="x", pady=(0, 6), after=self.f_props)
+        else:
+            self.f_ubi_niveles.pack_forget()
+
         self._updating_widgets = False
+
+    def _seleccionar_ubicacion_rapida(self):
+        """Atajo rápido para seleccionar y enfocar la configuración de niveles de ubicación."""
+        self.selected_key = "ubicacion"
+        for k, label_text in self.opciones_elementos:
+            if k == "ubicacion":
+                self.var_elem_sel.set(label_text)
+                break
+        self._cargar_elemento_en_inspector("ubicacion")
+        self.redibujar_todo()
+
+    def _cargar_configuracion_ubicacion_ui(self):
+        """Carga la configuración de niveles de ubicación en el panel interactivo."""
+        cfg = self.layout.get("elements", {}).get("ubicacion", {})
+        niveles_guardados = cfg.get("niveles", ["local", "area", "oficina"])
+        if not isinstance(niveles_guardados, list):
+            niveles_guardados = ["local", "area", "oficina"]
+
+        sep = cfg.get("separador", " - ")
+        self.var_ubi_sep.set(sep)
+
+        self.niveles_ordenados = [n.lower() for n in niveles_guardados if n.lower() in ("local", "area", "oficina")]
+        for n in ("local", "area", "oficina"):
+            if n not in self.niveles_ordenados:
+                self.niveles_ordenados.append(n)
+
+        self.var_inc_local.set("local" in niveles_guardados)
+        self.var_inc_area.set("area" in niveles_guardados)
+        self.var_inc_oficina.set("oficina" in niveles_guardados)
+
+        self._refrescar_listbox_niveles()
+        self._actualizar_muestra_ubicacion(redibujar=False)
+
+    def _refrescar_listbox_niveles(self):
+        """Refresca los elementos del Listbox según el orden y estado de los checkboxes."""
+        self.list_niveles.delete(0, tk.END)
+        nombres = {
+            "local": "🏢 Local (Sede / Penal)",
+            "area": "📂 Área / Dpto",
+            "oficina": "📍 Oficina / Ambiente"
+        }
+        activos_map = {
+            "local": self.var_inc_local.get(),
+            "area": self.var_inc_area.get(),
+            "oficina": self.var_inc_oficina.get(),
+        }
+        for idx, niv in enumerate(self.niveles_ordenados, 1):
+            estado = "✓" if activos_map.get(niv, True) else "✕"
+            self.list_niveles.insert(tk.END, f"{idx}. [{estado}] {nombres.get(niv, niv)}")
+
+    def _on_ubi_checkbox_toggle(self):
+        """Callback cuando se marca o desmarca algún checkbox de campo."""
+        self._on_ubi_niveles_changed()
+
+    def _subir_nivel_ubicacion(self):
+        """Sube la prioridad/orden del nivel seleccionado en el listbox."""
+        sel = self.list_niveles.curselection()
+        if not sel or sel[0] <= 0:
+            return
+        idx = sel[0]
+        self.niveles_ordenados[idx - 1], self.niveles_ordenados[idx] = (
+            self.niveles_ordenados[idx],
+            self.niveles_ordenados[idx - 1],
+        )
+        self._on_ubi_niveles_changed()
+        self.list_niveles.selection_set(idx - 1)
+
+    def _bajar_nivel_ubicacion(self):
+        """Baja la prioridad/orden del nivel seleccionado en el listbox."""
+        sel = self.list_niveles.curselection()
+        if not sel or sel[0] >= len(self.niveles_ordenados) - 1:
+            return
+        idx = sel[0]
+        self.niveles_ordenados[idx + 1], self.niveles_ordenados[idx] = (
+            self.niveles_ordenados[idx],
+            self.niveles_ordenados[idx + 1],
+        )
+        self._on_ubi_niveles_changed()
+        self.list_niveles.selection_set(idx + 1)
+
+    def _aplicar_preset_ubicacion(self, preset):
+        """Aplica un orden y selección predeterminada de 1 solo clic."""
+        self.var_inc_local.set("local" in preset)
+        self.var_inc_area.set("area" in preset)
+        self.var_inc_oficina.set("oficina" in preset)
+        nuevo_orden = list(preset)
+        for n in ("local", "area", "oficina"):
+            if n not in nuevo_orden:
+                nuevo_orden.append(n)
+        self.niveles_ordenados = nuevo_orden
+        self._on_ubi_niveles_changed()
+
+    def _on_ubi_niveles_changed(self):
+        """Refresca la lista y actualiza la muestra gráfica de la etiqueta."""
+        self._refrescar_listbox_niveles()
+        self._actualizar_muestra_ubicacion(redibujar=True)
+
+    def _actualizar_muestra_ubicacion(self, redibujar=True):
+        """Genera el texto de muestra interactivo y actualiza el layout en memoria."""
+        from services.label_batch_service import formatear_texto_ubicacion
+
+        activos_map = {
+            "local": self.var_inc_local.get(),
+            "area": self.var_inc_area.get(),
+            "oficina": self.var_inc_oficina.get(),
+        }
+        niveles_activos = [n for n in self.niveles_ordenados if activos_map.get(n, False)]
+        if not niveles_activos:
+            niveles_activos = ["oficina"]
+
+        sep = self.var_ubi_sep.get()
+        if sep is None:
+            sep = " - "
+
+        cfg = self.layout.setdefault("elements", {}).setdefault("ubicacion", {})
+        cfg["niveles"] = niveles_activos
+        cfg["separador"] = sep
+        cfg["patron"] = sep.join(f"{{{n}}}" for n in niveles_activos)
+
+        texto_muestra = formatear_texto_ubicacion(
+            local="SEDE REGIONAL",
+            area="ADMINISTRACIÓN",
+            oficina="OFICINA 101",
+            formato=niveles_activos,
+            separador=sep
+        )
+        cfg["sample"] = texto_muestra
+        if self.selected_key == "ubicacion":
+            self.var_sample_text.set(texto_muestra)
+        if hasattr(self, 'lbl_ubi_preview_texto'):
+            self.lbl_ubi_preview_texto.config(text=f"Vista previa: {texto_muestra}")
+
+        if redibujar:
+            self.redibujar_todo()
+
+    def _sincronizar_ubicacion_en_layout(self):
+        """Garantiza que la configuración de niveles de ubicación quede lista para persistir."""
+        if hasattr(self, 'var_inc_local'):
+            self._actualizar_muestra_ubicacion(redibujar=False)
 
     def _on_prop_change(self):
         """Se ejecuta cuando el usuario modifica cualquier Spinbox, Checkbox o Combo."""
@@ -947,6 +1178,7 @@ class Window_label_designer(tk.Toplevel):
     def guardar_configuracion(self):
         """Persiste la configuración en el archivo JSON y datos de entidad/período en BD."""
         self._cerrar_editor_inline(guardar=True)
+        self._sincronizar_ubicacion_en_layout()
         if hasattr(self, "var_entidad") and hasattr(self, "var_periodo"):
             try:
                 from db.query import actualizar_datos

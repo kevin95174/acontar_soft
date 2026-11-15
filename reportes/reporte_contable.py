@@ -7,8 +7,13 @@ from utils.pdf_utils import PageNumCanvas
 from collections import defaultdict
 
 def iniciar_reporte_contable(reporte, encabezados, datos, colWidths, direccion):
-    pdf_name = str(reporte) + ".pdf"
-    pathpdf = os.path.join(direccion, pdf_name)
+    if direccion.lower().endswith('.pdf'):
+        pathpdf = direccion
+    else:
+        pdf_name = str(reporte).strip() + ".pdf"
+        pathpdf = os.path.join(direccion, pdf_name)
+
+    os.makedirs(os.path.dirname(os.path.abspath(pathpdf)), exist_ok=True)
 
     doc = SimpleDocTemplate(pathpdf, pagesize=landscape(A4),
                             rightMargin=40, leftMargin=40,
@@ -108,3 +113,4 @@ def iniciar_reporte_contable(reporte, encabezados, datos, colWidths, direccion):
     elements.append(t)
 
     doc.build(elements, canvasmaker=PageNumCanvas)
+    return pathpdf

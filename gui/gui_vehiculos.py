@@ -9,6 +9,7 @@ from db.query import (
 	actualizar_vehiculo
 )
 from reportes.ficha_vehicular import iniciar_reporte
+from utils.export_utils import solicitar_ruta_guardado, abrir_archivo_generado, generar_nombre_estandar
 from gui.gui_detalles import Window_detalles
 from utils.helpers import resource_path
 
@@ -432,10 +433,21 @@ class Window_vehiculos(tk.Toplevel):
 			return
 
 		try:
-			file_path = filedialog.askdirectory(initialdir='report_actas/fichas_vehiculares/', title="Seleccionar carpeta de destino")
+			sugerido = generar_nombre_estandar("FICHA_VEHICULAR", identificador=codigo, extension="pdf")
+			file_path = solicitar_ruta_guardado(
+				tipo="pdf",
+				nombre_sugerido=sugerido,
+				carpeta_defecto='report_actas/fichas_vehiculares/',
+				parent=self,
+				titulo="Guardar Ficha Vehicular en PDF"
+			)
 			if file_path:
-				iniciar_reporte(codigo, file_path)
-				mb.showinfo(title='Acontar S.A.C.', message="La Ficha Vehicular se generó con éxito.", parent=self)
+				pdf_gen = iniciar_reporte(codigo, file_path)
+				abrir_archivo_generado(
+					pdf_gen or file_path,
+					parent=self,
+					mensaje_exito=f"La Ficha Vehicular del bien '{codigo}' se generó con éxito."
+				)
 				self.focus_set()
 		except Exception as e:
 			mb.showerror(title='¡Atención!', message=f"Ocurrió un error al generar la ficha:\n{e}", parent=self)

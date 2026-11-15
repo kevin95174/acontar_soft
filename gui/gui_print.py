@@ -22,12 +22,19 @@ from label.label_gen import (
 	guardar_impresora_configurada
 )
 from label.label_sobrante import build_label_sobrante
+from utils.export_utils import solicitar_ruta_guardado, abrir_archivo_generado
 from services.label_batch_service import (
 	obtener_oficinas, 
 	filtrar_bienes_oficina, 
 	buscar_bien_por_codigo,
 	filtrar_oficinas_predictivo,
-	buscar_oficina_por_codigo
+	buscar_oficina_por_codigo,
+	formatear_texto_ubicacion,
+	obtener_todos_los_bienes_bd,
+	ordenar_bienes_por_ubicacion_y_codigo,
+	clave_codigo_natural,
+	obtener_estructura_primera_ubicacion,
+	obtener_bienes_primera_ubicacion
 )
 
 
@@ -57,6 +64,7 @@ class Window_print(tk.Toplevel):
 		self.config = configparser.ConfigParser()
 		self.img_label_path = None
 		self.impresora_var = tk.StringVar()
+		self._oficina_seleccionada_data = None
 		self.grab_set()
 		self.focus_set()
 
@@ -65,14 +73,17 @@ class Window_print(tk.Toplevel):
 		self._centrar_ventana(1100, 740)
 
 		self.nbk = ttk.Notebook(self, style="Print.TNotebook")
-		self.tab_lote   = tk.Frame(self.nbk, bg="#f8fafc")
+		self.tab_lote    = tk.Frame(self.nbk, bg="#f8fafc")
+		self.tab_masivo  = tk.Frame(self.nbk, bg="#f8fafc")
 		self.tab_ajustes = tk.Frame(self.nbk, bg="#f8fafc")
 
 		self.nbk.add(self.tab_lote,    text="  🖨️  Impresión en Lote / Por Oficina  ")
+		self.nbk.add(self.tab_masivo,  text="  🌐  Impresión Masiva (Primera Ubicación)  ")
 		self.nbk.add(self.tab_ajustes, text="  ⚙️  Ajustes  ")
 		self.nbk.pack(fill="both", expand=True, padx=0, pady=0)
 
 		self.tab_lote_init()
+		self.tab_masivo_init()
 		self.tab_ajustes_init()
 		self.load_config()
 		self.cargar_imagen_guardada()
@@ -240,7 +251,7 @@ class Window_print(tk.Toplevel):
 				"Ubicados (Inventariados en esta oficina)",
 				"Faltantes (No inventariados de esta oficina)",
 				"Primera Ubicación (Asignados originalmente)",
-				"Todos (Ubicados + Asignados)",
+				"Todos (Ubicados + Asignados de oficina)",
 				"Crear una nueva lista"
 			]
 		)
@@ -256,6 +267,8 @@ class Window_print(tk.Toplevel):
 
 		self.etr_lote_ofic = ttk.Entry(frame_filtros, textvariable=self.lote_ofic_personalizada)
 		self.etr_lote_ofic.grid(row=1, column=2, columnspan=2, padx=4, pady=4, sticky="ew")
+		self.etr_lote_ofic.bind("<KeyRelease>", self._on_lote_ofic_personalizada_change)
+		self.etr_lote_ofic.bind("<Return>", self._on_lote_ofic_personalizada_change)
 
 		lblAdd = ttk.Label(frame_filtros, text="Cód. Bien:")
 		lblAdd.grid(row=1, column=4, padx=(8, 4), pady=4, sticky="w")
@@ -395,13 +408,13 @@ class Window_print(tk.Toplevel):
 
 		columnas = ("num", "codpat", "codint", "deno", "acta_ant", "estado", "oficina")
 		self.tree_lote = ttk.Treeview(frame_tabla, columns=columnas, show="headings", selectmode="extended", style="Print.Treeview")
-		self.tree_lote.heading("num",      text="#")
-		self.tree_lote.heading("codpat",   text="Cód. Patrimonial")
-		self.tree_lote.heading("codint",   text="Cód. Interno")
-		self.tree_lote.heading("deno",     text="Denominación")
-		self.tree_lote.heading("acta_ant", text="Ficha / Acta")
-		self.tree_lote.heading("estado",   text="Estado Inv.")
-		self.tree_lote.heading("oficina",  text="Oficina Etiqueta")
+		self.tree_lote.heading("num",      text="#", command=lambda: self._ordenar_tree_por_columna("num"))
+		self.tree_lote.heading("codpat",   text="Cód. Patrimonial", command=lambda: self._ordenar_tree_por_columna("codpat"))
+		self.tree_lote.heading("codint",   text="Cód. Interno", command=lambda: self._ordenar_tree_por_columna("codint"))
+		self.tree_lote.heading("deno",     text="Denominación", command=lambda: self._ordenar_tree_por_columna("deno"))
+		self.tree_lote.heading("acta_ant", text="Ficha / Acta", command=lambda: self._ordenar_tree_por_columna("acta_ant"))
+		self.tree_lote.heading("estado",   text="Estado Inv.", command=lambda: self._ordenar_tree_por_columna("estado"))
+		self.tree_lote.heading("oficina",  text="Oficina Etiqueta", command=lambda: self._ordenar_tree_por_columna("oficina"))
 
 		self.tree_lote.column("num",      width=35,  anchor="center")
 		self.tree_lote.column("codpat",   width=120, anchor="w")
@@ -444,8 +457,15 @@ class Window_print(tk.Toplevel):
 		)
 		self.lbl_total_lote.pack()
 
-		btnQuitar = ttk.Button(frame_inferior, text="🗑️ Quitar Seleccionado(s)", command=self.quitar_seleccionados_lote)
-		btnQuitar.pack(side="left", padx=6)
+		btnOrdenar = ttk.Button(
+			frame_inferior,
+			text="🔀 Ordenar: Local ➔ Área ➔ Oficina ➔ Código",
+			command=self.ordenar_lote_por_ubicacion_y_codigo
+		)
+		btnOrdenar.pack(side="left", padx=4)
+
+		btnQuitar = ttk.Button(frame_inferior, text="🗑️ Quitar", command=self.quitar_seleccionados_lote)
+		btnQuitar.pack(side="left", padx=4)
 
 		btnNueva = ttk.Button(frame_inferior, text="✨ Limpiar / Nueva Lista", command=self.nueva_lista_lote)
 		btnNueva.pack(side="left", padx=4)
@@ -719,7 +739,13 @@ class Window_print(tk.Toplevel):
 	def _aplicar_oficina_seleccionada(self, fila_personal):
 		acta, local, area, oficina, _dni, _full_name = fila_personal
 		self._cerrar_popup_oficinas()
-		nombre_ofi = (oficina or area or local or "").strip()
+		self._oficina_seleccionada_data = {
+			"acta": str(acta or "").strip(),
+			"local": str(local or "").strip(),
+			"area": str(area or "").strip(),
+			"oficina": str(oficina or "").strip()
+		}
+		nombre_ofi = formatear_texto_ubicacion(local, area, oficina)
 		self.lote_cod_oficina.set(str(acta or "").strip())
 		self.lote_oficina_sel.set(nombre_ofi)
 		self.lote_ofic_personalizada.set(nombre_ofi)
@@ -755,8 +781,34 @@ class Window_print(tk.Toplevel):
 			return
 		ofi = buscar_oficina_por_codigo(codigo, self.lote_oficinas_data)
 		if ofi:
-			self.lote_oficina_sel.set(ofi["oficina"])
-			self.lote_ofic_personalizada.set(ofi["oficina"])
+			self._oficina_seleccionada_data = ofi
+			nombre_ofi = formatear_texto_ubicacion(ofi.get("local", ""), ofi.get("area", ""), ofi.get("oficina", ""))
+			self.lote_oficina_sel.set(nombre_ofi)
+			self.lote_ofic_personalizada.set(nombre_ofi)
+
+	def _on_lote_ofic_personalizada_change(self, _event=None):
+		"""
+		Permite al usuario escribir un nombre personalizado para la oficina en la etiqueta.
+		Si se ingresa texto, se aplica a todas las etiquetas del lote y previsualización.
+		Si se deja en blanco, vuelve automáticamente al formato de niveles de la oficina.
+		"""
+		nom_pers = self.lote_ofic_personalizada.get().strip()
+		for b in getattr(self, 'lote_items', []):
+			if nom_pers:
+				b["oficina_etiqueta"] = nom_pers
+			else:
+				loc = b.get("local", "")
+				are = b.get("area", "")
+				ofi = b.get("oficina", "") or b.get("oficina_actual", "")
+				b["oficina_etiqueta"] = formatear_texto_ubicacion(loc, are, ofi)
+
+		self._refrescar_tabla_lote()
+		if hasattr(self, 'tree_lote') and self.tree_lote.selection():
+			self.previsualizar_seleccionado_lote()
+		elif hasattr(self, '_bien_pendiente_agregar') and self._bien_pendiente_agregar is not None:
+			cod = self.lote_codigo_agregar.get().strip()
+			if cod:
+				self.previsualizar_codigo_entrada(cod)
 
 	def _resolver_acta_actual(self):
 		cod = self.lote_cod_oficina.get().strip()
@@ -878,6 +930,103 @@ class Window_print(tk.Toplevel):
 			)
 		n = len(self.lote_items)
 		self.lbl_total_lote.config(text=f"📋  {n} {'etiqueta' if n == 1 else 'etiquetas'} en lista")
+
+	def cargar_todos_los_bienes_bd(self, filtro="todos"):
+		"""Carga todos los bienes de la base de datos ordenados por Local ➔ Área ➔ Oficina ➔ Código."""
+		self._cerrar_popup_oficinas()
+		bienes = obtener_todos_los_bienes_bd(filtro=filtro, ordenar=True)
+		if not bienes:
+			mb.showinfo(title="Sin bienes", message="No se encontraron bienes en la base de datos con el criterio seleccionado.", parent=self)
+			self.nueva_lista_lote()
+			return
+
+		# Si el usuario escribió un texto manual en 'Oficina etiqueta', aplicarlo
+		ofic_personalizada = self.lote_ofic_personalizada.get().strip()
+		if ofic_personalizada:
+			for b in bienes:
+				b["oficina_etiqueta"] = ofic_personalizada
+
+		self.lote_items = bienes
+		self._refrescar_tabla_lote()
+		if self.tree_lote.get_children():
+			first = self.tree_lote.get_children()[0]
+			self.tree_lote.selection_set(first)
+			self.previsualizar_seleccionado_lote()
+
+		desc_filtro = "Ubicados" if filtro == "ubicados" else ("Faltantes" if filtro == "faltantes" else "Completos")
+		if hasattr(self, "lbl_prev_info"):
+			self.lbl_prev_info.config(
+				text=f"🌐 Base de Datos ({desc_filtro}): {len(bienes)} bienes cargados y ordenados por Local ➔ Área ➔ Oficina ➔ Código (Menor a Mayor).",
+				foreground="#16a34a"
+			)
+		mb.showinfo(
+			title="Carga Masiva Exitosa",
+			message=f"Se cargaron exitosamente {len(bienes)} bienes de toda la entidad.\n\nOrganizados en secuencia estricta:\n1° Local (A ➔ Z)\n2° Área (A ➔ Z)\n3° Oficina (A ➔ Z)\n4° Código Patrimonial / Interno (de menor a mayor)",
+			parent=self
+		)
+
+	def ordenar_lote_por_ubicacion_y_codigo(self):
+		"""Reordena la lista actual según Local ➔ Área ➔ Oficina ➔ Código (de menor a mayor)."""
+		if not self.lote_items:
+			mb.showwarning(title="Sin bienes", message="No hay bienes cargados en la lista para ordenar.", parent=self)
+			return
+
+		self.lote_items = ordenar_bienes_por_ubicacion_y_codigo(self.lote_items, por_codigo_menor_a_mayor=True)
+		self._refrescar_tabla_lote()
+		if hasattr(self, "lbl_prev_info"):
+			self.lbl_prev_info.config(
+				text=f"✅ {len(self.lote_items)} etiquetas ordenadas por Local ➔ Área ➔ Oficina ➔ Código (Menor a Mayor).",
+				foreground="#16a34a"
+			)
+		mb.showinfo(
+			title="Lista Reordenada",
+			message=f"Se reordenaron {len(self.lote_items)} etiquetas en la lista:\n\n1° Local (A ➔ Z)\n2° Área (A ➔ Z)\n3° Oficina (A ➔ Z)\n4° Código Patrimonial / Interno (de menor a mayor)",
+			parent=self
+		)
+
+	def _ordenar_tree_por_columna(self, col):
+		"""Permite ordenar interactivamente la lista al hacer clic en cualquier columna del Treeview."""
+		if not self.lote_items:
+			return
+
+		if not hasattr(self, "_tree_sort_reverse"):
+			self._tree_sort_reverse = {}
+
+		reverse = not self._tree_sort_reverse.get(col, False)
+		self._tree_sort_reverse[col] = reverse
+
+		if col in ("codpat", "codint"):
+			def _k(b):
+				c = b.get(col, "") or b.get("CodPat" if col == "codpat" else "CodInt", "")
+				return clave_codigo_natural(c)
+			self.lote_items.sort(key=_k, reverse=reverse)
+		elif col == "oficina":
+			def _k(b):
+				loc = str(b.get("local", "")).lower()
+				are = str(b.get("area", "")).lower()
+				ofi = str(b.get("oficina_etiqueta", "") or b.get("oficina", "")).lower()
+				return (loc, are, ofi)
+			self.lote_items.sort(key=_k, reverse=reverse)
+		elif col == "acta_ant":
+			def _k(b):
+				a = b.get("acta_ant", "") or b.get("ActaAnt", "")
+				return clave_codigo_natural(a)
+			self.lote_items.sort(key=_k, reverse=reverse)
+		elif col == "deno":
+			self.lote_items.sort(key=lambda b: str(b.get("deno", "") or b.get("DenBien", "")).lower(), reverse=reverse)
+		elif col == "estado":
+			self.lote_items.sort(key=lambda b: str(b.get("estado_filtro", "") or b.get("estado_bien", "")).lower(), reverse=reverse)
+		else:  # num
+			if reverse:
+				self.lote_items.reverse()
+
+		self._refrescar_tabla_lote()
+		sentido = "descendente 🔻" if reverse else "ascendente 🔺"
+		if hasattr(self, "lbl_prev_info"):
+			self.lbl_prev_info.config(
+				text=f"Columna '{col}' ordenada en sentido {sentido}.",
+				foreground="#475569"
+			)
 
 	def on_enter_codigo_lote(self, _event=None):
 		"""
@@ -1325,6 +1474,578 @@ class Window_print(tk.Toplevel):
 			traceback.print_exc()
 			mb.showerror(title="Error de impresión", message=f"No se pudo enviar el lote a la impresora:\n{e}", parent=self)
 
+	# =========================================================================
+	# PESTAÑA: IMPRESIÓN MASIVA (PRIMERA UBICACIÓN / TODA LA ENTIDAD)
+	# =========================================================================
+	def tab_masivo_init(self):
+		self.masivo_local_sel = tk.StringVar(value="(Todos los Locales)")
+		self.masivo_area_sel = tk.StringVar(value="(Todas las Áreas)")
+		self.masivo_oficina_sel = tk.StringVar(value="(Todas las Oficinas)")
+		self.masivo_deno_busq = tk.StringVar()
+		self.masivo_items = []
+		self.masivo_photo = None
+		self.masivo_estructura = {"locales": [], "areas": [], "oficinas": []}
+		self._masivo_sort_reverse = {}
+
+		self.masivo_prev_codpat = tk.StringVar()
+		self.masivo_prev_codint = tk.StringVar()
+		self.masivo_prev_deno = tk.StringVar()
+		self.masivo_prev_local = tk.StringVar()
+		self.masivo_prev_area = tk.StringVar()
+		self.masivo_prev_ofic = tk.StringVar()
+		self.masivo_prev_etiq = tk.StringVar()
+
+		container = tk.Frame(self.tab_masivo, bg="#f8fafc")
+		container.pack(fill="both", expand=True, padx=10, pady=10)
+
+		# 1. Filtros por Estructura de Primera Ubicación
+		frame_filtros = ttk.LabelFrame(
+			container, 
+			text=" 🌐 Filtros por Estructura de Primera Ubicación (Asignación Original) ", 
+			style="Print.TLabelframe", 
+			padding=8
+		)
+		frame_filtros.pack(fill="x", pady=(0, 8))
+
+		# Fila 0: Local, Área, Oficina
+		ttk.Label(frame_filtros, text="Local:").grid(row=0, column=0, padx=4, pady=3, sticky="w")
+		self.cbx_masivo_local = ttk.Combobox(frame_filtros, textvariable=self.masivo_local_sel, state="readonly", width=22)
+		self.cbx_masivo_local.grid(row=0, column=1, padx=(0, 8), pady=3, sticky="ew")
+
+		ttk.Label(frame_filtros, text="Área:").grid(row=0, column=2, padx=4, pady=3, sticky="w")
+		self.cbx_masivo_area = ttk.Combobox(frame_filtros, textvariable=self.masivo_area_sel, state="readonly", width=24)
+		self.cbx_masivo_area.grid(row=0, column=3, padx=(0, 8), pady=3, sticky="ew")
+
+		ttk.Label(frame_filtros, text="Oficina:").grid(row=0, column=4, padx=4, pady=3, sticky="w")
+		self.cbx_masivo_oficina = ttk.Combobox(frame_filtros, textvariable=self.masivo_oficina_sel, state="readonly", width=28)
+		self.cbx_masivo_oficina.grid(row=0, column=5, padx=4, pady=3, sticky="ew")
+
+		# Fila 1: Denominación del bien y Botones de acción
+		ttk.Label(frame_filtros, text="Denominación:").grid(row=1, column=0, padx=4, pady=4, sticky="w")
+		self.etr_masivo_deno = ttk.Entry(frame_filtros, textvariable=self.masivo_deno_busq)
+		self.etr_masivo_deno.grid(row=1, column=1, columnspan=3, padx=(0, 8), pady=4, sticky="ew")
+		self.etr_masivo_deno.bind("<Return>", lambda _e: self.cargar_bienes_masivo())
+
+		f_btn_filtro = tk.Frame(frame_filtros, bg="#ffffff")
+		f_btn_filtro.grid(row=1, column=4, columnspan=2, sticky="ew", padx=4, pady=4)
+
+		btnConsultar = ttk.Button(f_btn_filtro, text="🔍 Consultar Bienes", command=self.cargar_bienes_masivo)
+		btnConsultar.pack(side="left", padx=(0, 6))
+
+		btnCargarTodo = ttk.Button(f_btn_filtro, text="🌐 Cargar Toda la Entidad", command=self.cargar_todo_primera_ubicacion)
+		btnCargarTodo.pack(side="left", padx=(0, 6))
+
+		btnLimpiar = ttk.Button(f_btn_filtro, text="✨ Limpiar Filtros", command=self.limpiar_filtros_masivo)
+		btnLimpiar.pack(side="left")
+
+		frame_filtros.columnconfigure(1, weight=1)
+		frame_filtros.columnconfigure(3, weight=1)
+		frame_filtros.columnconfigure(5, weight=2)
+
+		# 2. Panel Central: Previsualización y Detalles
+		frame_prev_panel = ttk.LabelFrame(
+			container, 
+			text=" 📋 Detalle y Vista Previa de la Etiqueta Seleccionada ", 
+			style="Print.TLabelframe", 
+			padding=8
+		)
+		frame_prev_panel.pack(fill="x", pady=(0, 8))
+
+		frame_datos = tk.Frame(frame_prev_panel, bg="#ffffff")
+		frame_datos.pack(side="left", fill="both", expand=True, padx=(2, 8))
+
+		# Fila 0: Denominación
+		ttk.Label(frame_datos, text="Denominación:").grid(row=0, column=0, padx=4, pady=2, sticky="w")
+		ttk.Entry(frame_datos, textvariable=self.masivo_prev_deno, state="readonly", font=("Segoe UI", 9, "bold")).grid(row=0, column=1, columnspan=5, padx=4, pady=2, sticky="ew")
+
+		# Fila 1: Códigos
+		ttk.Label(frame_datos, text="Cód. Patrimonial:").grid(row=1, column=0, padx=4, pady=2, sticky="w")
+		ttk.Entry(frame_datos, textvariable=self.masivo_prev_codpat, state="readonly", width=16).grid(row=1, column=1, padx=4, pady=2, sticky="ew")
+
+		ttk.Label(frame_datos, text="Cód. Interno:").grid(row=1, column=2, padx=(8, 4), pady=2, sticky="w")
+		ttk.Entry(frame_datos, textvariable=self.masivo_prev_codint, state="readonly", width=14).grid(row=1, column=3, padx=4, pady=2, sticky="ew")
+
+		ttk.Label(frame_datos, text="Local:").grid(row=1, column=4, padx=(8, 4), pady=2, sticky="w")
+		ttk.Entry(frame_datos, textvariable=self.masivo_prev_local, state="readonly", width=18).grid(row=1, column=5, padx=4, pady=2, sticky="ew")
+
+		# Fila 2: Área, Oficina, Texto Etiqueta
+		ttk.Label(frame_datos, text="Área:").grid(row=2, column=0, padx=4, pady=2, sticky="w")
+		ttk.Entry(frame_datos, textvariable=self.masivo_prev_area, state="readonly", width=16).grid(row=2, column=1, padx=4, pady=2, sticky="ew")
+
+		ttk.Label(frame_datos, text="Oficina:").grid(row=2, column=2, padx=(8, 4), pady=2, sticky="w")
+		ttk.Entry(frame_datos, textvariable=self.masivo_prev_ofic, state="readonly", width=14).grid(row=2, column=3, padx=4, pady=2, sticky="ew")
+
+		ttk.Label(frame_datos, text="Etiqueta Ubi.:").grid(row=2, column=4, padx=(8, 4), pady=2, sticky="w")
+		ttk.Entry(frame_datos, textvariable=self.masivo_prev_etiq, state="readonly", width=18).grid(row=2, column=5, padx=4, pady=2, sticky="ew")
+
+		# Fila 3: Botón individual y aviso
+		f_sub_act = tk.Frame(frame_datos, bg="#ffffff")
+		f_sub_act.grid(row=3, column=0, columnspan=6, pady=(6, 2), sticky="ew")
+
+		btnImpIndividual = ttk.Button(f_sub_act, text="🖨️ Imprimir Esta Etiqueta", command=self.imprimir_seleccionado_masivo)
+		btnImpIndividual.pack(side="left", padx=(0, 6))
+
+		self.lbl_masivo_prev_info = ttk.Label(
+			f_sub_act,
+			text="Seleccione un bien de la lista para ver su información y previsualización gráfica.",
+			font=("Segoe UI", 8, "italic"),
+			foreground="#64748b"
+		)
+		self.lbl_masivo_prev_info.pack(side="left", padx=8)
+
+		frame_datos.columnconfigure(1, weight=1)
+		frame_datos.columnconfigure(3, weight=1)
+		frame_datos.columnconfigure(5, weight=2)
+
+		# Caja derecha para preview de imagen
+		frame_lateral_prev = tk.Frame(frame_prev_panel, bg="#ffffff")
+		frame_lateral_prev.pack(side="right", fill="y", padx=(4, 2))
+
+		box_img = tk.Frame(frame_lateral_prev, bg="#f1f5f9", bd=1, relief="solid", width=320, height=155)
+		box_img.pack_propagate(False)
+		box_img.pack(side="top", pady=2)
+
+		self.lbl_masivo_preview = tk.Label(
+			box_img,
+			text="Vista previa de la etiqueta\n\n(50mm x 25mm)",
+			bg="#f1f5f9",
+			fg="#94a3b8",
+			font=("Segoe UI", 9)
+		)
+		self.lbl_masivo_preview.pack(fill="both", expand=True)
+
+		btnDiseno = ttk.Button(
+			frame_lateral_prev,
+			text="📐 Diseñar / Ajustar Etiqueta...",
+			command=self.abrir_disenador_etiqueta
+		)
+		btnDiseno.pack(side="top", fill="x", pady=(4, 0))
+
+		# 3. Tabla de Bienes en Primera Ubicación
+		frame_tabla_masivo = ttk.LabelFrame(
+			container,
+			text=" 📋 Bienes en Primera Ubicación (Ordenados por Local ➔ Área ➔ Oficina ➔ Código) ",
+			style="Print.TLabelframe",
+			padding=6
+		)
+		frame_tabla_masivo.pack(fill="both", expand=True, pady=(0, 4))
+
+		cols_m = ("num", "local", "area", "oficina", "codpat", "codint", "deno", "acta_ant", "oficina_etiq")
+		self.tree_masivo = ttk.Treeview(frame_tabla_masivo, columns=cols_m, show="headings", selectmode="extended", style="Print.Treeview")
+		self.tree_masivo.heading("num",          text="#", command=lambda: self._ordenar_tree_masivo_por_columna("num"))
+		self.tree_masivo.heading("local",        text="Local", command=lambda: self._ordenar_tree_masivo_por_columna("local"))
+		self.tree_masivo.heading("area",         text="Área", command=lambda: self._ordenar_tree_masivo_por_columna("area"))
+		self.tree_masivo.heading("oficina",      text="Oficina (Primera Ubic.)", command=lambda: self._ordenar_tree_masivo_por_columna("oficina"))
+		self.tree_masivo.heading("codpat",       text="Cód. Patrimonial", command=lambda: self._ordenar_tree_masivo_por_columna("codpat"))
+		self.tree_masivo.heading("codint",       text="Cód. Interno", command=lambda: self._ordenar_tree_masivo_por_columna("codint"))
+		self.tree_masivo.heading("deno",         text="Denominación del Bien", command=lambda: self._ordenar_tree_masivo_por_columna("deno"))
+		self.tree_masivo.heading("acta_ant",     text="Ficha / Acta", command=lambda: self._ordenar_tree_masivo_por_columna("acta_ant"))
+		self.tree_masivo.heading("oficina_etiq", text="Texto en Etiqueta", command=lambda: self._ordenar_tree_masivo_por_columna("oficina_etiq"))
+
+		self.tree_masivo.column("num",          width=35,  anchor="center")
+		self.tree_masivo.column("local",        width=110, anchor="w")
+		self.tree_masivo.column("area",         width=120, anchor="w")
+		self.tree_masivo.column("oficina",      width=140, anchor="w")
+		self.tree_masivo.column("codpat",       width=110, anchor="w")
+		self.tree_masivo.column("codint",       width=85,  anchor="w")
+		self.tree_masivo.column("deno",         width=230, anchor="w")
+		self.tree_masivo.column("acta_ant",     width=75,  anchor="center")
+		self.tree_masivo.column("oficina_etiq", width=180, anchor="w")
+
+		self.tree_masivo.tag_configure("odd",  background="#ffffff")
+		self.tree_masivo.tag_configure("even", background="#f8fafc")
+
+		sc_my = ttk.Scrollbar(frame_tabla_masivo, orient="vertical", command=self.tree_masivo.yview)
+		sc_mx = ttk.Scrollbar(frame_tabla_masivo, orient="horizontal", command=self.tree_masivo.xview)
+		self.tree_masivo.configure(yscrollcommand=sc_my.set, xscrollcommand=sc_mx.set)
+
+		self.tree_masivo.grid(row=0, column=0, sticky="nsew")
+		sc_my.grid(row=0, column=1, sticky="ns")
+		sc_mx.grid(row=1, column=0, sticky="ew")
+		frame_tabla_masivo.rowconfigure(0, weight=1)
+		frame_tabla_masivo.columnconfigure(0, weight=1)
+
+		self.tree_masivo.bind("<<TreeviewSelect>>", self._on_tree_masivo_select)
+		self.tree_masivo.bind("<Double-Button-1>", lambda _e: self.previsualizar_seleccionado_masivo())
+
+		# 4. Toolbar Inferior
+		frame_inf = tk.Frame(container, bg="#f8fafc")
+		frame_inf.pack(fill="x", pady=(8, 0))
+
+		chip_m = tk.Frame(frame_inf, bg="#eff6ff", bd=1, relief="solid")
+		chip_m.pack(side="left", padx=(0, 8), pady=2)
+		self.lbl_total_masivo = tk.Label(
+			chip_m,
+			text="📋  0 bienes en primera ubicación",
+			bg="#eff6ff",
+			fg="#1d4ed8",
+			font=("Segoe UI", 9, "bold"),
+			padx=10, pady=4
+		)
+		self.lbl_total_masivo.pack()
+
+		btnOrdMasivo = ttk.Button(
+			frame_inf,
+			text="🔀 Ordenar: Local ➔ Área ➔ Oficina ➔ Código",
+			command=self.ordenar_masivo_por_ubicacion_y_codigo
+		)
+		btnOrdMasivo.pack(side="left", padx=4)
+
+		btnQuitarM = ttk.Button(frame_inf, text="🗑️ Quitar", command=self.quitar_seleccionados_masivo)
+		btnQuitarM.pack(side="left", padx=4)
+
+		# Selector de Impresora sutil en la barra
+		f_imp_box = tk.Frame(frame_inf, bg="#f8fafc", padx=3, pady=1, highlightbackground="#e2e8f0", highlightthickness=1)
+		f_imp_box.pack(side="left", padx=(8, 4))
+		tk.Label(f_imp_box, text="🖨️", font=("Segoe UI", 8), bg="#f8fafc", fg="#64748b").pack(side="left", padx=(1, 2))
+		self.cbx_impresora_masivo = ttk.Combobox(
+			f_imp_box,
+			textvariable=self.impresora_var,
+			state="readonly",
+			width=16,
+			font=("Segoe UI", 8),
+			postcommand=self._cargar_impresoras
+		)
+		self.cbx_impresora_masivo.pack(side="left")
+		self.cbx_impresora_masivo.bind("<<ComboboxSelected>>", self._on_impresora_seleccionada)
+
+		btnImpTotal = ttk.Button(frame_inf, text="🖨️ Imprimir Lote Completo", command=self.imprimir_lote_masivo)
+		btnImpTotal.pack(side="right", padx=5)
+
+		btnPdfTotal = ttk.Button(frame_inf, text="📄 Generar PDF en Lote", command=self.generar_pdf_lote_masivo)
+		btnPdfTotal.pack(side="right", padx=5)
+
+		self._cargar_combos_primera_ubicacion()
+
+	def _cargar_combos_primera_ubicacion(self):
+		try:
+			self.masivo_estructura = obtener_estructura_primera_ubicacion()
+			locales = self.masivo_estructura.get("locales", [])
+			areas = self.masivo_estructura.get("areas", [])
+			oficinas = self.masivo_estructura.get("oficinas", [])
+
+			self.cbx_masivo_local["values"] = ["(Todos los Locales)"] + locales
+			self.cbx_masivo_area["values"] = ["(Todas las Áreas)"] + areas
+			self.cbx_masivo_oficina["values"] = ["(Todas las Oficinas)"] + oficinas
+		except Exception as e:
+			print(f"[GUI_PRINT][ERROR] Error cargando estructura de primera ubicación: {e}")
+
+	def _al_cambiar_local_masivo(self, _event=None):
+		"""Filtra reactivamente las áreas y oficinas según el Local seleccionado."""
+		try:
+			loc = self.masivo_local_sel.get().strip()
+			if not loc or loc.startswith("(Todos"):
+				self.cbx_masivo_area["values"] = ["(Todas las Áreas)"] + self.masivo_estructura.get("areas", [])
+				self.cbx_masivo_oficina["values"] = ["(Todas las Oficinas)"] + self.masivo_estructura.get("oficinas", [])
+				return
+
+			conn = iniciar_conexion_sqlite()
+			if not conn:
+				return
+			cur = conn.cursor()
+			cur.execute("""
+				SELECT DISTINCT COALESCE(pa.area, ''), COALESCE(pa.oficina, '')
+				FROM bienes b
+				LEFT JOIN personal pa ON CAST(b.ActaAnt AS TEXT) = CAST(pa.Acta AS TEXT)
+				WHERE LOWER(TRIM(COALESCE(pa.local, ''))) = ?
+				ORDER BY pa.area ASC, pa.oficina ASC
+			""", (loc.lower(),))
+			filas = cur.fetchall()
+			conn.close()
+
+			areas = sorted(list({str(f[0]).strip() for f in filas if f[0]}))
+			oficinas = sorted(list({str(f[1]).strip() for f in filas if f[1]}))
+
+			self.cbx_masivo_area["values"] = ["(Todas las Áreas)"] + areas
+			self.cbx_masivo_oficina["values"] = ["(Todas las Oficinas)"] + oficinas
+			self.masivo_area_sel.set("(Todas las Áreas)")
+			self.masivo_oficina_sel.set("(Todas las Oficinas)")
+		except Exception as e:
+			print(f"[GUI_PRINT][WARN] Error al filtrar combos por local: {e}")
+
+	def _al_cambiar_area_masivo(self, _event=None):
+		"""Filtra reactivamente las oficinas según el Área seleccionada."""
+		try:
+			loc = self.masivo_local_sel.get().strip()
+			are = self.masivo_area_sel.get().strip()
+			if not are or are.startswith("(Todas"):
+				return
+
+			conn = iniciar_conexion_sqlite()
+			if not conn:
+				return
+			cur = conn.cursor()
+			if loc and not loc.startswith("(Todos"):
+				cur.execute("""
+					SELECT DISTINCT COALESCE(pa.oficina, '')
+					FROM bienes b
+					LEFT JOIN personal pa ON CAST(b.ActaAnt AS TEXT) = CAST(pa.Acta AS TEXT)
+					WHERE LOWER(TRIM(COALESCE(pa.local, ''))) = ? AND LOWER(TRIM(COALESCE(pa.area, ''))) = ?
+					ORDER BY pa.oficina ASC
+				""", (loc.lower(), are.lower()))
+			else:
+				cur.execute("""
+					SELECT DISTINCT COALESCE(pa.oficina, '')
+					FROM bienes b
+					LEFT JOIN personal pa ON CAST(b.ActaAnt AS TEXT) = CAST(pa.Acta AS TEXT)
+					WHERE LOWER(TRIM(COALESCE(pa.area, ''))) = ?
+					ORDER BY pa.oficina ASC
+				""", (are.lower(),))
+			filas = cur.fetchall()
+			conn.close()
+
+			oficinas = sorted(list({str(f[0]).strip() for f in filas if f[0]}))
+			self.cbx_masivo_oficina["values"] = ["(Todas las Oficinas)"] + oficinas
+			self.masivo_oficina_sel.set("(Todas las Oficinas)")
+		except Exception as e:
+			print(f"[GUI_PRINT][WARN] Error al filtrar combos por área: {e}")
+
+	def limpiar_filtros_masivo(self):
+		self.masivo_local_sel.set("(Todos los Locales)")
+		self.masivo_area_sel.set("(Todas las Áreas)")
+		self.masivo_oficina_sel.set("(Todas las Oficinas)")
+		self.masivo_deno_busq.set("")
+
+	def cargar_bienes_masivo(self):
+		loc = self.masivo_local_sel.get().strip()
+		are = self.masivo_area_sel.get().strip()
+		ofi = self.masivo_oficina_sel.get().strip()
+		deno = self.masivo_deno_busq.get().strip()
+
+		bienes = obtener_bienes_primera_ubicacion(
+			local=loc,
+			area=are,
+			oficina=ofi,
+			denominacion=deno,
+			ordenar=True
+		)
+		if not bienes:
+			mb.showinfo(
+				title="Sin registros",
+				message="No se encontraron bienes en Primera Ubicación con los filtros seleccionados.",
+				parent=self
+			)
+			self.masivo_items = []
+			self._refrescar_tabla_masivo()
+			return
+
+		self.masivo_items = bienes
+		self._refrescar_tabla_masivo()
+		if self.tree_masivo.get_children():
+			first = self.tree_masivo.get_children()[0]
+			self.tree_masivo.selection_set(first)
+			self.previsualizar_seleccionado_masivo()
+
+		if hasattr(self, "lbl_masivo_prev_info"):
+			self.lbl_masivo_prev_info.config(
+				text=f"✅ {len(bienes)} bienes de Primera Ubicación cargados y ordenados por Local ➔ Área ➔ Oficina ➔ Código (Menor a Mayor).",
+				foreground="#16a34a"
+			)
+
+	def cargar_todo_primera_ubicacion(self):
+		self.limpiar_filtros_masivo()
+		self.cargar_bienes_masivo()
+
+	def _refrescar_tabla_masivo(self):
+		for item in self.tree_masivo.get_children():
+			self.tree_masivo.delete(item)
+
+		for i, b in enumerate(self.masivo_items, 1):
+			tag = "odd" if i % 2 == 1 else "even"
+			self.tree_masivo.insert(
+				"",
+				tk.END,
+				tags=(tag,),
+				values=(
+					i,
+					b.get("local", ""),
+					b.get("area", ""),
+					b.get("oficina", ""),
+					b.get("codpat", ""),
+					b.get("codint", ""),
+					b.get("deno", ""),
+					b.get("acta_ant", ""),
+					b.get("oficina_etiqueta", "")
+				)
+			)
+		n = len(self.masivo_items)
+		self.lbl_total_masivo.config(text=f"📋  {n} {'bien' if n == 1 else 'bienes'} en primera ubicación")
+
+	def _on_tree_masivo_select(self, _event=None):
+		sel = self.tree_masivo.selection()
+		if sel:
+			self.previsualizar_seleccionado_masivo()
+
+	def previsualizar_seleccionado_masivo(self):
+		sel = self.tree_masivo.selection()
+		if not sel:
+			return
+		item_idx = self.tree_masivo.index(sel[0])
+		if item_idx < 0 or item_idx >= len(self.masivo_items):
+			return
+		bien = self.masivo_items[item_idx]
+
+		self.masivo_prev_codpat.set(bien.get("codpat", ""))
+		self.masivo_prev_codint.set(bien.get("codint", ""))
+		self.masivo_prev_deno.set(bien.get("deno", ""))
+		self.masivo_prev_local.set(bien.get("local", ""))
+		self.masivo_prev_area.set(bien.get("area", ""))
+		self.masivo_prev_ofic.set(bien.get("oficina", ""))
+		self.masivo_prev_etiq.set(bien.get("oficina_etiqueta", ""))
+
+		try:
+			ofic_etiq = bien.get("oficina_etiqueta", "")
+			pdf_path = build_label_batch([bien], valor=0, output_name="masivo_preview_single.pdf", oficina_personalizada_global=ofic_etiq)
+			if pdf_path and os.path.exists(pdf_path):
+				with fitz.open(pdf_path) as pdf_doc:
+					if pdf_doc.page_count:
+						pix = pdf_doc[0].get_pixmap(matrix=fitz.Matrix(2.2, 2.2), alpha=False)
+						pil_img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+						self.masivo_photo = ImageTk.PhotoImage(pil_img)
+						self.lbl_masivo_preview.config(image=self.masivo_photo, text="")
+		except Exception as e:
+			print(f"[GUI_PRINT][ERROR] Error generando preview masivo: {e}")
+
+	def ordenar_masivo_por_ubicacion_y_codigo(self):
+		if not self.masivo_items:
+			mb.showwarning(title="Sin bienes", message="No hay bienes cargados en la lista para ordenar.", parent=self)
+			return
+		self.masivo_items = ordenar_bienes_por_ubicacion_y_codigo(self.masivo_items, por_codigo_menor_a_mayor=True)
+		self._refrescar_tabla_masivo()
+		if hasattr(self, "lbl_masivo_prev_info"):
+			self.lbl_masivo_prev_info.config(
+				text=f"✅ {len(self.masivo_items)} etiquetas ordenadas por Local ➔ Área ➔ Oficina ➔ Código (Menor a Mayor).",
+				foreground="#16a34a"
+			)
+		mb.showinfo(
+			title="Lista Ordenada",
+			message=f"Se ordenaron las {len(self.masivo_items)} etiquetas según la jerarquía:\n\n1° Local (A ➔ Z)\n2° Área (A ➔ Z)\n3° Oficina (A ➔ Z)\n4° Código Patrimonial / Interno (de menor a mayor numérico)",
+			parent=self
+		)
+
+	def _ordenar_tree_masivo_por_columna(self, col):
+		if not self.masivo_items:
+			return
+		reverse = not self._masivo_sort_reverse.get(col, False)
+		self._masivo_sort_reverse[col] = reverse
+
+		if col in ("codpat", "codint", "acta_ant"):
+			def _k(b):
+				c = b.get(col, "")
+				return clave_codigo_natural(c)
+			self.masivo_items.sort(key=_k, reverse=reverse)
+		elif col in ("local", "area", "oficina", "oficina_etiq"):
+			self.masivo_items.sort(key=lambda b: str(b.get(col, "")).lower(), reverse=reverse)
+		elif col == "deno":
+			self.masivo_items.sort(key=lambda b: str(b.get("deno", "")).lower(), reverse=reverse)
+		else:  # num
+			if reverse:
+				self.masivo_items.reverse()
+
+		self._refrescar_tabla_masivo()
+
+	def quitar_seleccionados_masivo(self):
+		seleccionados = self.tree_masivo.selection()
+		if not seleccionados:
+			mb.showwarning(title="Atención", message="Seleccione una o más filas para quitar.", parent=self)
+			return
+		indices = sorted([self.tree_masivo.index(item) for item in seleccionados], reverse=True)
+		for idx in indices:
+			if 0 <= idx < len(self.masivo_items):
+				self.masivo_items.pop(idx)
+		self._refrescar_tabla_masivo()
+
+	def imprimir_seleccionado_masivo(self):
+		sel = self.tree_masivo.selection()
+		if not sel:
+			mb.showwarning(title="Atención", message="Seleccione un bien de la tabla para imprimir su etiqueta.", parent=self)
+			return
+		item_idx = self.tree_masivo.index(sel[0])
+		if item_idx < 0 or item_idx >= len(self.masivo_items):
+			return
+		bien = self.masivo_items[item_idx]
+		cod = bien.get("codpat", "") or bien.get("codint", "")
+		acta = bien.get("acta_ant", "")
+		ofic = bien.get("oficina_etiqueta", "")
+		imp_activa = self.impresora_var.get().strip()
+
+		try:
+			build_label(1, cod, acta, oficina_personalizada=ofic, bien_data=bien, impresora=imp_activa)
+			mb.showinfo(title="Impresión individual", message=f"Se envió la etiqueta del bien '{cod}' a la impresora:\n'{imp_activa}'.", parent=self)
+		except Exception as e:
+			mb.showerror(title="Error de impresión", message=f"No se pudo imprimir la etiqueta:\n{e}", parent=self)
+
+	def generar_pdf_lote_masivo(self):
+		if not self.masivo_items:
+			mb.showwarning(title="Sin etiquetas", message="No hay bienes en la lista para generar el PDF.", parent=self)
+			return
+		sugerido = f"Etiquetas_Primera_Ubicacion_{len(self.masivo_items)}_items.pdf"
+		destino = solicitar_ruta_guardado(
+			tipo="pdf",
+			nombre_sugerido=sugerido,
+			carpeta_defecto="labels/lotes",
+			parent=self,
+			titulo="Guardar PDF de etiquetas en lote (Primera Ubicación)"
+		)
+		if not destino:
+			return
+
+		try:
+			dir_padre = os.path.dirname(destino)
+			nombre_archivo = os.path.basename(destino)
+			if dir_padre:
+				os.makedirs(dir_padre, exist_ok=True)
+
+			pdf_path = build_label_batch(
+				self.masivo_items,
+				valor=0,
+				output_name=nombre_archivo
+			)
+			if not pdf_path or not os.path.exists(pdf_path):
+				raise RuntimeError("No se generó el archivo PDF.")
+
+			if os.path.abspath(pdf_path) != os.path.abspath(destino):
+				import shutil
+				shutil.copy2(pdf_path, destino)
+				pdf_path = destino
+
+			abrir_archivo_generado(
+				pdf_path,
+				parent=self,
+				mensaje_exito=f"Se generó el PDF con {len(self.masivo_items)} etiquetas de Primera Ubicación."
+			)
+		except Exception as e:
+			mb.showerror(title="Error al generar PDF", message=f"Error en la generación del lote:\n{e}", parent=self)
+
+	def imprimir_lote_masivo(self):
+		if not self.masivo_items:
+			mb.showwarning(title="Sin etiquetas", message="No hay bienes en la lista para imprimir.", parent=self)
+			return
+		imp_activa = self.impresora_var.get().strip()
+		confirmar = mb.askyesno(
+			title="Confirmar Impresión Masiva",
+			message=f"Se enviarán {len(self.masivo_items)} etiquetas de Primera Ubicación a la impresora:\n'{imp_activa or 'Predeterminada'}'\n\n¿Desea continuar con la impresión?",
+			parent=self
+		)
+		if not confirmar:
+			return
+
+		try:
+			pdf_path = build_label_batch(
+				self.masivo_items,
+				valor=1,
+				output_name="lote_masivo_impresion.pdf",
+				impresora=imp_activa
+			)
+			if pdf_path:
+				mb.showinfo(
+					title="Impresión enviada",
+					message=f"Se enviaron exitosamente {len(self.masivo_items)} etiquetas a la impresora:\n'{imp_activa}'.",
+					parent=self
+				)
+		except Exception as e:
+			mb.showerror(title="Error de impresión", message=f"No se pudo enviar el lote masivo a la impresora:\n{e}", parent=self)
+
 	# -------------------------------------------------------------------------
 	# PESTAÑA 2: AJUSTES Y CONFIGURACIÓN
 	# -------------------------------------------------------------------------
@@ -1385,7 +2106,7 @@ class Window_print(tk.Toplevel):
 		)
 		ttk.Button(
 			card_ent,
-			text="📐 Diseñador de Etiqueta (Editar Posiciones y Tamaños)...",
+			text="📐 Diseñador de Etiqueta (Editar Niveles de Ubicación, Posiciones y Tamaños)...",
 			command=self.abrir_disenador_etiqueta
 		).grid(row=7, column=0, columnspan=2, sticky="ew", pady=6)
 
@@ -1418,6 +2139,8 @@ class Window_print(tk.Toplevel):
 			valores = impresoras if impresoras else ([seleccion] if seleccion else ["(No se encontraron impresoras)"])
 			if hasattr(self, 'cbx_impresora_lote'):
 				self.cbx_impresora_lote['values'] = valores
+			if hasattr(self, 'cbx_impresora_masivo'):
+				self.cbx_impresora_masivo['values'] = valores
 			if hasattr(self, 'cbx_impresora_ajustes'):
 				self.cbx_impresora_ajustes['values'] = valores
 			print(f"[GUI_PRINT] Impresoras cargadas: {valores} | Activa: '{seleccion}'")
@@ -1435,7 +2158,7 @@ class Window_print(tk.Toplevel):
 
 	def load_config(self):
 		if os.path.exists(self.config_path):
-			self.config.read(self.config_path)
+			self.config.read(self.config_path, encoding='utf-8')
 			if 'Settings' in self.config:
 				self.img_label_path = self.config['Settings'].get('img_label_path', '')
 				imp_cfg = self.config['Settings'].get('printer_name', '').strip()
@@ -1459,6 +2182,7 @@ class Window_print(tk.Toplevel):
 			nom_imp = self.impresora_var.get().strip()
 			if nom_imp and nom_imp != "(No se encontraron impresoras)":
 				guardar_impresora_configurada(nom_imp, self.config_path)
+
 			mb.showinfo(title="Acontar S.A.C.", message="¡Ajustes actualizados con éxito!", parent=self)
 		except Exception as e:
 			mb.showerror(title="Error", message=f"Ocurrió un error: {e}", parent=self)
@@ -1480,6 +2204,17 @@ class Window_print(tk.Toplevel):
 					self.ent.set(str(datos[1]))
 				if hasattr(self, 'per') and datos[2]:
 					self.per.set(str(datos[2]))
+
+			# Si hay bienes en la lista y no tienen nombre personalizado forzado,
+			# recalcular sus textos de ubicación con el diseño guardado
+			nom_personalizado = self.lote_ofic_personalizada.get().strip()
+			for b in getattr(self, 'lote_items', []):
+				if not nom_personalizado:
+					loc = b.get("local", "")
+					are = b.get("area", "")
+					ofi = b.get("oficina", "") or b.get("oficina_actual", "")
+					b["oficina_etiqueta"] = formatear_texto_ubicacion(loc, are, ofi)
+			self._refrescar_tabla_lote()
 
 			if hasattr(self, 'tree_lote') and self.tree_lote.selection():
 				self.previsualizar_seleccionado_lote()
@@ -1523,6 +2258,9 @@ class Window_individual_popup(tk.Toplevel):
 		self.ofic = tk.StringVar()
 		self.loca = tk.StringVar()
 		self.area = tk.StringVar()
+		self._oficina_raw = ""
+		self._local_raw = ""
+		self._area_raw = ""
 		self.imprimir_aqui = tk.BooleanVar(value=imprimir_al_agregar_var.get() if imprimir_al_agregar_var else False)
 		self._codigo_consultado = None
 
@@ -1610,10 +2348,11 @@ class Window_individual_popup(tk.Toplevel):
 			ttk.Entry(frame_form, textvariable=self.inve).grid(column=1, row=5, columnspan=2, padx=4, pady=4, sticky=EW)
 			ttk.Entry(frame_form, textvariable=self.ubic).grid(column=1, row=6, columnspan=2, padx=4, pady=4, sticky=EW)
 
-			# OFICINA DIRECTAMENTE EDITABLE (Sin checkbox)
+			# OFICINA DIRECTAMENTE EDITABLE (Nombre personalizado)
 			self.etrOfi = ttk.Entry(frame_form, textvariable=self.ofic)
 			self.etrOfi.grid(column=1, row=7, columnspan=2, padx=4, pady=4, sticky=EW)
 			self.etrOfi.bind("<Return>", lambda _e: self.preview_pdf())
+			self.etrOfi.bind("<KeyRelease>", lambda _e: self.preview_pdf())
 
 		elif self.valor == 2:
 			ttk.Label(frame_form, text="Item:").grid(column=0, row=0, padx=4, pady=4, sticky=EW)
@@ -1689,10 +2428,18 @@ class Window_individual_popup(tk.Toplevel):
 		if acta:
 			try:
 				ubi = data_label_ubi(acta)
-				if ubi and len(ubi) > 0 and len(ubi[0]) > 0 and ubi[0][0] is not None:
-					self.ofic.set(str(ubi[0][0]))
-			except Exception:
-				pass
+				if ubi and len(ubi) > 0 and len(ubi[0]) > 0:
+					self._oficina_raw = str(ubi[0][0] or "").strip()
+					self._local_raw = str(ubi[0][1] or "").strip() if len(ubi[0]) > 1 else ""
+					self._area_raw = str(ubi[0][2] or "").strip() if len(ubi[0]) > 2 else ""
+					texto = formatear_texto_ubicacion(
+						self._local_raw,
+						self._area_raw,
+						self._oficina_raw
+					)
+					self.ofic.set(texto)
+			except Exception as e:
+				print(f"[GUI_PRINT][Popup._acta_cambiada] Error al consultar ubicación para acta {acta}: {e}")
 
 	def buscar(self):
 		codigo = self.codi.get().strip()
@@ -1718,6 +2465,8 @@ class Window_individual_popup(tk.Toplevel):
 					self.acta.set(str(r[3]).split(" - ")[0].strip())
 				elif r[4] and " - " in str(r[4]):
 					self.acta.set(str(r[4]).split(" - ")[0].strip())
+			else:
+				self._acta_cambiada()
 
 			self.preview_pdf()
 			self.btnAgregar.focus_set()
@@ -1805,6 +2554,9 @@ class Window_individual_popup(tk.Toplevel):
 			"inv": self.inve.get().strip(),
 			"oficina_actual": self.inve.get().strip(),
 			"oficina_anterior": self.ubic.get().strip(),
+			"local": self._local_raw,
+			"area": self._area_raw,
+			"oficina": self._oficina_raw or ofic_val,
 			"estado_bien": "",
 			"estado_filtro": "Manual",
 			"oficina_etiqueta": ofic_val

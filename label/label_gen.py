@@ -544,8 +544,15 @@ def build_label(valor, codigo, codact, oficina_personalizada=None, bien_data=Non
         ubi = str(oficina_personalizada).strip()
     else:
         try:
+            from services.label_batch_service import formatear_texto_ubicacion
             j = data_label_ubi(codact)
-            ubi = str(j[0][0]) if (j and len(j) > 0 and len(j[0]) > 0 and j[0][0] is not None) else ""
+            if j and len(j) > 0 and len(j[0]) > 0:
+                ofi = str(j[0][0] or "").strip()
+                loc = str(j[0][1] or "").strip() if len(j[0]) > 1 else ""
+                are = str(j[0][2] or "").strip() if len(j[0]) > 2 else ""
+                ubi = formatear_texto_ubicacion(local=loc, area=are, oficina=ofi)
+            else:
+                ubi = ""
         except Exception as ubi_err:
             print(f"[LABEL][WARN] Error consultando oficina para acta '{codact}': {ubi_err}")
             ubi = ""

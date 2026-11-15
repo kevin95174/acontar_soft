@@ -14,10 +14,13 @@ class Window_view_data(tk.Toplevel):
         self.geometry("1000x600")
         self.minsize(800, 450)
 
-        # Ruta a SQLite
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        default_db = os.path.join(base_dir, "..", "db", "orap2022.db")
-        self.db_path = getattr(self.root, "db_path", os.path.normpath(default_db))
+        # Ruta a SQLite dinámicamente según el proyecto activo
+        from utils.project_manager import ProjectManager
+        self.db_path = getattr(self.root, "db_path", None) or ProjectManager.get_active_db_path()
+
+        active_proj = ProjectManager.get_active_project()
+        db_file_name = os.path.basename(self.db_path)
+        self.title(f"Visor de Datos SQLite — [{active_proj.get('name', 'Proyecto')}] ({db_file_name})")
 
         self._build_ui()
         self.cargar_datos_pestana_actual()

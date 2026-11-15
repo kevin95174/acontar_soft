@@ -766,12 +766,14 @@ class Window_config(tk.Toplevel):
     def exportar_csv(self):
         tabla = self.selec.get()
         try:
-            exportar_inv(tabla)
-            mb.showinfo(
-                title='Acontar S.A.C.',
-                message=f"¡Los datos de '{tabla}' se exportaron con éxito a la carpeta 'exportar/' en formato CSV!",
-                parent=self
-            )
+            ruta_csv = exportar_inv(tabla, parent=self)
+            if ruta_csv:
+                from utils.export_utils import abrir_archivo_generado
+                abrir_archivo_generado(
+                    ruta_csv,
+                    parent=self,
+                    mensaje_exito=f"¡Los datos de '{tabla}' se exportaron con éxito a formato CSV!"
+                )
             self.focus_set()
         except Exception as e:
             mb.showerror(title='Error al Exportar CSV', message=f"Ocurrió un error: {str(e)}", parent=self)
@@ -784,12 +786,7 @@ class Window_config(tk.Toplevel):
             if not data_expo or len(data_expo) < 2:
                 mb.showwarning("Sin datos", f"No se encontraron registros para exportar en '{tabla}'.", parent=self)
                 return
-            exportar_excel(tabla, data_expo[0], data_expo[1])
-            mb.showinfo(
-                title='Acontar S.A.C.',
-                message=f"¡Los datos de '{tabla}' se exportaron con éxito a Excel (.xlsx)!",
-                parent=self
-            )
+            exportar_excel(tabla, data_expo[0], data_expo[1], parent=self)
             self.focus_set()
         except Exception as e:
             mb.showerror(title="Error al Exportar Excel", message=f"Ocurrió un error: {str(e)}", parent=self)

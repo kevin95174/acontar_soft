@@ -72,7 +72,10 @@ DEFAULT_LABEL_LAYOUT = {
             "font_bold": False,
             "align": "left",
             "sample": "ALMACEN CENTRAL - OFICINA 101",
-            "color_preview": "#ecfdf5"
+            "color_preview": "#ecfdf5",
+            "niveles": ["local", "area", "oficina"],
+            "separador": " - ",
+            "patron": "{local} - {area} - {oficina}"
         },
         "cod_interno": {
             "nombre": "Cód. Interno",

@@ -1,18 +1,34 @@
 import sqlite3
 import csv
+import os
 from datetime import date
+from utils.export_utils import solicitar_ruta_guardado, generar_nombre_estandar, abrir_archivo_generado
 
-def exportar_inv(tabla):
+def exportar_inv(tabla, ruta_destino=None, parent=None):
     conn = sqlite3.connect('db/orap2022.db') 
     cursor = conn.cursor()
     cursor.execute(f""" SELECT * FROM "{tabla}" """)
-    today = date.today()
-    archivo = str(tabla)+"_"+today.strftime("%d_%m_%Y")+".csv"
+    
+    if not ruta_destino:
+        sugerido = generar_nombre_estandar(str(tabla), extension="csv")
+        ruta_destino = solicitar_ruta_guardado(
+            tipo="csv",
+            nombre_sugerido=sugerido,
+            carpeta_defecto="exportar",
+            parent=parent,
+            titulo=f"Exportar tabla '{tabla}' a CSV"
+        )
+        if not ruta_destino:
+            return None
 
-    with open("exportar/"+archivo, "w", newline="", encoding='utf-8-sig') as csv_file:
+    os.makedirs(os.path.dirname(os.path.abspath(ruta_destino)), exist_ok=True)
+
+    with open(ruta_destino, "w", newline="", encoding='utf-8-sig') as csv_file:
         csv_writer = csv.writer(csv_file, delimiter=",", quoting=csv.QUOTE_ALL)
         csv_writer.writerow([i[0] for i in cursor.description])
         csv_writer.writerows(cursor)
+
+    return ruta_destino
 
 def crear(nombd):
     connection = sqlite3.connect('db/'+ str(nombd)+'.db')

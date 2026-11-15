@@ -7,6 +7,7 @@ from reportes.reportes import iniciar_reporte
 from reportes.conciliacion import iniciar_conciliacion
 from reportes.reporte_contable import iniciar_reporte_contable
 from data.exp_excel import exportar_excel
+from utils.export_utils import solicitar_ruta_guardado, abrir_archivo_generado, generar_nombre_estandar
 from gui.gui_detalles import Window_detalles
 from utils.order_utils import sort_by
 from utils.helpers import resource_path
@@ -541,7 +542,7 @@ class Window_reporte(tk.Toplevel):
             mb.showwarning(title="Atención", message="No hay datos en la tabla para exportar a Excel.", parent=self)
             return
 
-        exportar_excel(self.arc, self.lista, datos)
+        exportar_excel(self.arc, self.lista, datos, parent=self)
         self.focus_set()
 
     def exportar_pdf(self):
@@ -556,10 +557,6 @@ class Window_reporte(tk.Toplevel):
             mb.showwarning(title="Atención", message="No hay datos en la tabla para exportar a PDF.", parent=self)
             return
 
-        file_path = filedialog.askdirectory(initialdir='report_actas/fichas_vehiculares/', parent=self)
-        if not file_path:
-            return
-
         try:
             template = ReportTemplateManager.get_template(self.valor)
             titulo_rep = template.get('titulo', self.arc)
@@ -568,15 +565,27 @@ class Window_reporte(tk.Toplevel):
             logo_rep = template.get('logo_path', '')
             mostrar_logo_rep = template.get('mostrar_logo', True)
 
+            sugerido = generar_nombre_estandar(titulo_rep or "Reporte", extension="pdf")
+            file_path = solicitar_ruta_guardado(
+                tipo="pdf",
+                nombre_sugerido=sugerido,
+                carpeta_defecto="report_actas/reportes_inventario",
+                parent=self,
+                titulo=f"Guardar {titulo_rep} en PDF"
+            )
+            if not file_path:
+                return
+
+            pdf_gen = None
             if self.valor == 10:
-                iniciar_conciliacion(titulo_rep, self.lista, datos, self.colwidths, file_path)
+                pdf_gen = iniciar_conciliacion(titulo_rep, self.lista, datos, self.colwidths, file_path)
             elif self.valor > 11:
-                iniciar_reporte_contable(titulo_rep, self.lista, datos, self.colwidths, file_path)
+                pdf_gen = iniciar_reporte_contable(titulo_rep, self.lista, datos, self.colwidths, file_path)
             else:
                 lista, datos_pdf, colwidths, cols_meta = ReportTemplateManager.preparar_datos_para_pdf(
                     self.valor, datos, template=template, incluir_metadata=True
                 )
-                iniciar_reporte(
+                pdf_gen = iniciar_reporte(
                     reporte=titulo_rep,
                     encabezados=lista,
                     datos=datos_pdf,
@@ -589,7 +598,11 @@ class Window_reporte(tk.Toplevel):
                     cols_metadata=cols_meta
                 )
 
-            mb.showinfo(title="Acontar S.A.C.", message="Reporte PDF generado con éxito.", parent=self)
+            abrir_archivo_generado(
+                pdf_gen or file_path,
+                parent=self,
+                mensaje_exito=f"Reporte PDF '{titulo_rep}' generado con éxito."
+            )
             self.focus_set()
         except Exception as e:
             mb.showerror(title="Error", message=f"Error al exportar PDF:\n{e}", parent=self)

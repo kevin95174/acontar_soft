@@ -253,6 +253,36 @@ def _migrate_legacy_tables_to_server_tables(cursor):
         except Exception as e:
             print(f"⚠️ Error migrando tabla física usuarios: {e}")
 
+    # 5. Asegurar que todo activo presente en `assets` tenga su registro en `inventory_records`
+    try:
+        cursor.execute("""
+            INSERT INTO inventory_records (
+                id, asset_id, codigo_interno, codigo_patrimonial, denominacion,
+                cuenta_contable, denominacion_cuenta, nro_doc_adq, fech_adq,
+                val_adq, dep_acumulada, valor_neto, estado, situacion,
+                estado_conservacion, marca, modelo, tipo, color, serie,
+                dimension, otros, observacion, placa, nro_motor, nro_chasis,
+                matricula, anio, nota, codigo_personal, codigo_ubicacion_inicial,
+                codigo_ubicacion_final, user_id, foto_url, fecha_inventariado,
+                inventariado, fecha_servidor, created_at, updated_at, deleted_at
+            )
+            SELECT
+                a.id, a.id, a.codigo_interno, a.codigo_patrimonial, a.denominacion,
+                a.cuenta_contable, a.denominacion_cuenta, a.nro_doc_adq, a.fech_adq,
+                a.val_adq, a.dep_acumulada, a.valor_neto, a.estado, a.situacion,
+                a.estado_conservacion, a.marca, a.modelo, a.tipo, a.color, a.serie,
+                a.dimension, a.otros, a.observacion, a.placa, a.nro_motor, a.nro_chasis,
+                a.matricula, a.anio, a.nota, a.codigo_personal, a.codigo_ubicacion_inicial,
+                COALESCE(a.codigo_ubicacion_final, 0), COALESCE(a.user_id, 0), a.foto_url, a.fecha_inventariado,
+                COALESCE(a.inventariado, 0), a.fecha_servidor, a.created_at, a.updated_at, a.deleted_at
+            FROM assets a
+            WHERE NOT EXISTS (
+                SELECT 1 FROM inventory_records ir WHERE ir.id = a.id OR ir.asset_id = a.id
+            );
+        """)
+    except Exception as e:
+        print(f"⚠️ Nota al reconciliar assets con inventory_records: {e}")
+
 
 def _create_compatibility_views_and_triggers(cursor):
     """

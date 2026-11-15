@@ -6,24 +6,34 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from utils.pdf_utils import PageNumCanvas
 from db.query import reportes, mostrar_d_personal, reportes_sobrantes, datos_iniciales
 
-def iniciar_reporte(n_acta, direccion, pinv, Ndni, equi, valor, fecha=None, ndeacta=None):
+def iniciar_reporte(n_acta, direccion=None, pinv="", Ndni="", equi="", valor="", fecha=None, ndeacta=None):
         fecha = fecha
         ndeacta = ndeacta
         datos_ini = datos_iniciales()
         # print(datos_ini)
 
+        if not direccion:
+            direccion = "fichas_inventario"
+
         r = mostrar_d_personal(n_acta)
-        v1 = r[0][0]
-        v2 = r[0][1]
-        v3 = r[0][2]
-        v4 = r[0][3]
-        v5 = r[0][4]
-        v6 = r[0][5]
+        if r and len(r) > 0:
+            v1 = r[0][0]
+            v2 = r[0][1]
+            v3 = r[0][2]
+            v4 = r[0][3]
+            v5 = r[0][4]
+            v6 = r[0][5]
+            j = str(v1) + " " + str(v2) + " " + "AREA " + str(v3) + " " + "OFICINA " + str(v4)
+        else:
+            j = f"Acta_{n_acta}"
 
-        j = str(v1) + " " + str(v2) + " " + "AREA " + str(v3) + " " + "OFICINA " + str(v4)
+        if str(direccion).lower().endswith('.pdf'):
+            pathpdf = direccion
+        else:
+            pdf_name = "FICHA " + str(j).strip() + ".pdf"
+            pathpdf = os.path.join(direccion, pdf_name)
 
-        pdf_name = "FICHA "+str(j)+".pdf"
-        pathpdf = os.path.join(direccion, pdf_name)
+        os.makedirs(os.path.dirname(os.path.abspath(pathpdf)), exist_ok=True)
 
         doc = SimpleDocTemplate(pathpdf, pagesize=landscape(A4),
                                 rightMargin=40, leftMargin=40,
@@ -259,3 +269,4 @@ def iniciar_reporte(n_acta, direccion, pinv, Ndni, equi, valor, fecha=None, ndea
 
         # doc.build(elements, canvasmaker=PageNumCanvas)
         doc.build(elements, canvasmaker=create_canvas)
+        return pathpdf

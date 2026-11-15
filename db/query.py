@@ -1388,7 +1388,7 @@ def data_label_nc(Acta):
 def data_label_ubi(Acta):
     conn_sqlite = iniciar_conexion_sqlite()
     acta_str = str(Acta or "").strip()
-    sql_sqlite = """SELECT oficina AS ubicacion FROM personal WHERE TRIM(CAST(Acta AS TEXT)) = ?"""
+    sql_sqlite = """SELECT oficina AS ubicacion, COALESCE(local, '') AS local, COALESCE(area, '') AS area FROM personal WHERE TRIM(CAST(Acta AS TEXT)) = ?"""
     cur = None
     try:
         cur = conn_sqlite.cursor()

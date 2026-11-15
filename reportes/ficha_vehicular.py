@@ -8,10 +8,14 @@ from db.query import selec_vehiculos, selec_vehiculos_tab1
 
 def iniciar_reporte(codigo, direccion):
 
-        j = "FICHA_VEHICULAR_"+str(codigo)
-        pdf_name = str(j)+".pdf"
+        if str(direccion).lower().endswith('.pdf'):
+            pathpdf = direccion
+        else:
+            j = "FICHA_VEHICULAR_" + str(codigo).strip()
+            pdf_name = str(j) + ".pdf"
+            pathpdf = os.path.join(direccion, pdf_name)
 
-        pathpdf = os.path.join(direccion, pdf_name)
+        os.makedirs(os.path.dirname(os.path.abspath(pathpdf)), exist_ok=True)
 
         doc = SimpleDocTemplate(pathpdf, pagesize=A4,
                                 rightMargin=40, leftMargin=40,
@@ -146,4 +150,4 @@ def iniciar_reporte(codigo, direccion):
         
         # write the document to disk
         doc.build(elements, canvasmaker=create_canvas)
-        # print("Funciono 1 vez")
+        return pathpdf

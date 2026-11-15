@@ -4,6 +4,7 @@ from tkinter import ttk, PhotoImage
 from tkinter import messagebox as mb
 from reportes.faltantes import iniciar_reporte
 from data.exp_excel import exportar_excel
+from utils.export_utils import abrir_archivo_generado
 from gui.gui_detalles import Window_detalles
 from utils.order_utils import sort_by
 from utils.helpers import resource_path
@@ -554,7 +555,13 @@ class Window_d_analisis(tk.Toplevel):
     # -------------------------------------------------------------------------
     def generar_pdf_faltantes(self):
         try:
-            iniciar_reporte(self.acta)
+            pdf_gen = iniciar_reporte(self.acta, parent=self)
+            if pdf_gen:
+                abrir_archivo_generado(
+                    pdf_gen,
+                    parent=self,
+                    mensaje_exito=f"Reporte de bienes faltantes para el Acta '{self.acta}' generado con éxito."
+                )
             self.focus_set()
         except Exception as e:
             mb.showerror("Error", f"No se pudo generar el reporte PDF:\n{e}", parent=self)
@@ -564,7 +571,7 @@ class Window_d_analisis(tk.Toplevel):
         if not datos:
             mb.showwarning("Atención", "No hay datos en la tabla para exportar.", parent=self)
             return
-        exportar_excel(self.arc.strip(), self.lista_limpia, datos)
+        exportar_excel(self.arc.strip(), self.lista_limpia, datos, parent=self)
         self.focus_set()
 
     def abrir_detalle_bien(self, _event=None):

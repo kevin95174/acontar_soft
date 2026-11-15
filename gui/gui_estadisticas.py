@@ -2141,7 +2141,7 @@ class Window_estadisticas(tk.Toplevel):
             return
 
         try:
-            exportar_excel(nombre_base, columnas, datos)
+            exportar_excel(nombre_base, columnas, datos, parent=self)
             self.focus_set()
         except Exception as e:
             mb.showerror("Error al Exportar", f"No se pudo exportar a Excel:\n{e}", parent=self)

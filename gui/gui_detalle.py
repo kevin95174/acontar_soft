@@ -6,6 +6,7 @@ from tkinter import ttk, PhotoImage, messagebox as mb
 from reportes.faltantes import iniciar_reporte
 from label.label_gen import build_label
 from data.exp_excel import exportar_excel
+from utils.export_utils import abrir_archivo_generado
 from utils.order_utils import sort_by
 from utils.helpers import resource_path
 from db.conex import iniciar_conexion_sqlite
@@ -719,8 +720,13 @@ class Window_detalle(tk.Toplevel):
 
     def generar_pdf(self):
         try:
-            iniciar_reporte(self.acta)
-            mb.showinfo("¡Atención!", "Reporte PDF generado con éxito.", parent=self)
+            pdf_gen = iniciar_reporte(self.acta, parent=self)
+            if pdf_gen:
+                abrir_archivo_generado(
+                    pdf_gen,
+                    parent=self,
+                    mensaje_exito=f"Reporte de faltantes para el Acta '{self.acta}' generado con éxito."
+                )
             self.focus_set()
         except Exception as e:
             mb.showerror("Error de Reporte", f"Error al generar el acta:\n{str(e)}", parent=self)
@@ -737,9 +743,8 @@ class Window_detalle(tk.Toplevel):
             return
 
         try:
-            nombre_archivo = f"Detalle_Acta_{self.acta or 'General'}_"
-            exportar_excel(nombre_archivo, self.lista, datos)
-            mb.showinfo("Exportación Exitosa", "Archivo Excel generado con éxito en la carpeta 'exportar/'.", parent=self)
+            nombre_archivo = f"Detalle_Acta_{self.acta or 'General'}"
+            exportar_excel(nombre_archivo, self.lista, datos, parent=self)
             self.focus_set()
         except Exception as e:
             mb.showerror("Error al Exportar", f"No se pudo exportar el archivo Excel: {e}", parent=self)

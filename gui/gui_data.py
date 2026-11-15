@@ -118,6 +118,6 @@ class Window_data(tk.Toplevel):
         for item in self.tree.get_children():
             values = self.tree.item(item, "values")
             datos.append(values)
-        exportar_excel(self.arc, self.lista, datos)
+        exportar_excel(self.arc, self.lista, datos, parent=self)
         self.focus_set()
 

@@ -8,9 +8,14 @@ from utils.pdf_utils import PageNumCanvas
 
 def iniciar_reporte(datos, direccion, colWidths, nombre, encabezados, orientacion, columna):
 
-        today = date.today()
-        pdf_name = str(nombre)+today.strftime("%d_%m_%Y")+".pdf"
-        pathpdf = os.path.join(direccion, pdf_name)
+        if direccion.lower().endswith('.pdf'):
+            pathpdf = direccion
+        else:
+            today = date.today()
+            pdf_name = str(nombre).strip() + "_" + today.strftime("%d_%m_%Y") + ".pdf"
+            pathpdf = os.path.join(direccion, pdf_name)
+
+        os.makedirs(os.path.dirname(os.path.abspath(pathpdf)), exist_ok=True)
 
         doc = SimpleDocTemplate(pathpdf, pagesize= A4 if orientacion ==1 else landscape(A4),
                                 rightMargin=40, leftMargin=40,
@@ -67,4 +72,4 @@ def iniciar_reporte(datos, direccion, colWidths, nombre, encabezados, orientacio
         def create_canvas(*args, **kwargs):
             return PageNumCanvas(*args, orientacion=orientacion, **kwargs)
         doc.build(elements, canvasmaker=create_canvas)
-        # print("Funciono 1 vez")
+        return pathpdf
